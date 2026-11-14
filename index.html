@@ -6,6 +6,18 @@
   <title>Radio Stats</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
+    @font-face {
+      font-family: 'Minecraft Seven';
+      src: url('fonts/MinecraftSeven-Regular.ttf') format('truetype');
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'Minecraft Seven';
+      src: url('fonts/MinecraftSeven-Bold.ttf') format('truetype');
+      font-weight: 700;
+      font-display: swap;
+    }
     :root {
       --background: #000;
       --text: #f2f2f2;
@@ -21,7 +33,7 @@
       padding: 24px;
       background: var(--background);
       color: var(--text);
-      font-family: system-ui, sans-serif;
+      font-family: 'Minecraft Seven', system-ui, sans-serif;
     }
     h1 { margin: 0 0 16px; font-size: 1.5rem; }
     .station-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
@@ -54,10 +66,25 @@
     .meter-value { display: block; font-variant-numeric: tabular-nums; }
     .meter-track { height: 4px; margin-top: 4px; background: var(--border); border-radius: 2px; }
     .meter-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+    h2 { margin: 0 0 8px; font-size: 1.1rem; }
+    .recent-widget {
+      margin-bottom: 24px;
+      padding: 16px;
+      border: 2px solid var(--accent);
+      border-radius: 12px;
+    }
+    .recent-widget h2 { color: var(--accent); }
+    .recent-table { min-width: 700px; }
+    .recent-table th { cursor: default; }
+    .recent-table th:hover { text-decoration: none; }
+    .album-art { display: block; width: 48px; height: 48px; border-radius: 4px; }
+    .apple-music-link { color: var(--accent); }
   </style>
 </head>
 <body>
   <h1>Radio Stats</h1>
+  <div id="recently-played"></div>
+  <h2>Song lists</h2>
   <div class="station-tabs" id="station-tabs"></div>
   <div class="status-message" id="status-message"></div>
   <div class="table-wrapper"><table id="songs-table"></table></div>
@@ -69,6 +96,24 @@
     ];
     const MAX_METER_VALUE = 100;
     const EMPTY_CELL_TEXT = '\u2014';
+
+    const RECENTLY_PLAYED_API_URL = 'https://script.google.com/macros/s/AKfycbyO8InJxfS1k7wqyasNp8Sd4dZb71WP0HT07RvWrYpdVZ5qN7ZeQBSUqNN7xQgwiLs/exec';
+    const RECENTLY_PLAYED_LIMIT = 20;
+    const RECENTLY_PLAYED_REFRESH_MS = 60 * 1000;
+
+    // Same headers as the Google Sheet. Types: 'text', 'image' (thumbnail), 'link'.
+    const RECENTLY_PLAYED_COLUMNS = [
+      { header: 'track_id', type: 'text' },
+      { header: 'start_time', type: 'text' },
+      { header: 'artist', type: 'text' },
+      { header: 'title', type: 'text' },
+      { header: 'album', type: 'text' },
+      { header: 'length_seconds', type: 'text' },
+      { header: 'album_art_url', type: 'image' },
+      { header: 'apple_music_url', type: 'link' },
+    ];
+
+    const recentlyPlayedWidgets = {}; // callSign -> { statusElement, tableElement }
 
     // Column types: 'text', 'number', 'duration' (seconds shown as m:ss), 'meter' (0-100 with a bar).
     // The station duration header is built from the call sign, e.g. "chfi duration" or "ckis duration".
@@ -205,8 +250,100 @@
       });
     }
 
+    function isSecureUrl(value) {
+      return typeof value === 'string' && value.startsWith('https://');
+    }
+
+    function createRecentlyPlayedCell(column, value) {
+      const cell = createElement('td');
+      const isLinkType = column.type === 'image' || column.type === 'link';
+      if (isMissing(value) || (isLinkType && !isSecureUrl(value))) {
+        cell.textContent = EMPTY_CELL_TEXT;
+      } else if (column.type === 'image') {
+        const albumArt = createElement('img', undefined, 'album-art');
+        albumArt.src = value;
+        albumArt.alt = '';
+        albumArt.loading = 'lazy';
+        cell.appendChild(albumArt);
+      } else if (column.type === 'link') {
+        const link = createElement('a', 'Open', 'apple-music-link');
+        link.href = value;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        cell.appendChild(link);
+      } else {
+        cell.textContent = value;
+      }
+      return cell;
+    }
+
+    function createRecentlyPlayedWidget(station) {
+      const widgetElement = createElement('section', undefined, 'recent-widget');
+      widgetElement.style.setProperty('--accent', `var(${station.accentVariable})`);
+
+      const statusElement = createElement('div', 'Loading...', 'status-message');
+      const tableElement = createElement('table', undefined, 'recent-table');
+      const tableWrapperElement = createElement('div', undefined, 'table-wrapper');
+      tableWrapperElement.appendChild(tableElement);
+
+      widgetElement.append(
+        createElement('h2', `${station.callSign} recently played`),
+        statusElement,
+        tableWrapperElement
+      );
+      document.getElementById('recently-played').appendChild(widgetElement);
+      recentlyPlayedWidgets[station.callSign] = { statusElement, tableElement };
+    }
+
+    function renderRecentlyPlayed(station, tracks) {
+      const { statusElement, tableElement } = recentlyPlayedWidgets[station.callSign];
+      tableElement.replaceChildren();
+
+      const headerRow = createElement('tr');
+      RECENTLY_PLAYED_COLUMNS.forEach((column) => headerRow.appendChild(createElement('th', column.header)));
+      tableElement.appendChild(createElement('thead')).appendChild(headerRow);
+
+      const body = tableElement.appendChild(createElement('tbody'));
+      tracks.forEach((track) => {
+        const row = createElement('tr');
+        RECENTLY_PLAYED_COLUMNS.forEach((column) => {
+          row.appendChild(createRecentlyPlayedCell(column, track[column.header]));
+        });
+        body.appendChild(row);
+      });
+
+      statusElement.textContent = tracks.length === 0 ? 'No plays recorded yet.' : '';
+    }
+
+    async function refreshRecentlyPlayed(station) {
+      try {
+        const requestUrl = `${RECENTLY_PLAYED_API_URL}?station=${station.callSign}&limit=${RECENTLY_PLAYED_LIMIT}`;
+        const response = await fetch(requestUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        if (payload.error) throw new Error(payload.error);
+        renderRecentlyPlayed(station, payload.tracks);
+      } catch (error) {
+        recentlyPlayedWidgets[station.callSign].statusElement.textContent =
+          `Could not load recently played: ${error.message}`;
+      }
+    }
+
+    function refreshAllRecentlyPlayed() {
+      return Promise.all(STATIONS.map(refreshRecentlyPlayed));
+    }
+
+    function startRecentlyPlayed() {
+      STATIONS.forEach(createRecentlyPlayedWidget);
+      refreshAllRecentlyPlayed();
+      setInterval(() => {
+        if (!document.hidden) refreshAllRecentlyPlayed(); // skip refreshing while the tab is in the background
+      }, RECENTLY_PLAYED_REFRESH_MS);
+    }
+
     async function start() {
       createStationTabs();
+      startRecentlyPlayed();
       try {
         await Promise.all(STATIONS.map(loadStationSongs));
       } catch (error) {
