@@ -953,18 +953,30 @@
     // One form for both adding (originalSong is null) and editing.
     function openSongEditor(originalSong) {
       const station = activeSongStation;
-      const columns = buildColumns(station).filter(column => column.type !== 'nps');
+      const columns = buildColumns(station);
       const form = createElement('form', undefined, 'song-form');
 
-      columns.forEach((column) => {
+      // Exclude NPS since it is calculated, but keep Combo and Durations editable
+      const editableColumns = columns.filter((column) => column.type !== 'nps');
+
+      editableColumns.forEach((column) => {
         const input = createElement('input');
         input.name = column.header;
         input.type = column.type === 'text' ? 'text' : 'number';
         if (column.type !== 'text') input.step = 'any';
-        if (column.type === 'meter') {
+
+        // Apply min/max constraints
+        if (column.type === 'combo' || column.header === 'note count (combo)') {
+          input.min = '1';
+          input.max = '9999';
+        } else if (column.type === 'duration') {
+          input.min = '1';
+          input.max = '600';
+        } else if (column.type === 'meter') {
           input.min = '0';
           input.max = String(MAX_METER_VALUE);
         }
+
         input.required = column.header === 'name' || column.header === 'artist';
         input.value = originalSong && !isMissing(originalSong[column.header]) ? originalSong[column.header] : '';
 
@@ -983,8 +995,26 @@
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const formData = new FormData(form);
+
+        // Validate combo range (1 to 9999)
+        const comboVal = Number(formData.get('note count (combo)'));
+        if (!isNaN(comboVal) && comboVal !== 0 && (comboVal < 1 || comboVal > 9999)) {
+          alert('Combo must be between 1 and 9999.');
+          return;
+        }
+
+        // Validate all duration fields range (1 to 600)
+        const durationHeaders = editableColumns.filter(c => c.type === 'duration').map(c => c.header);
+        for (const header of durationHeaders) {
+          const durVal = Number(formData.get(header));
+          if (!isNaN(durVal) && durVal !== 0 && (durVal < 1 || durVal > 600)) {
+            alert('Duration must be between 1 and 600 seconds.');
+            return;
+          }
+        }
+
         const enteredValues = Object.fromEntries(
-          columns.map((column) => [column.header, String(formData.get(column.header)).trim()])
+          editableColumns.map((column) => [column.header, String(formData.get(column.header)).trim()])
         );
         saveButton.disabled = true; // prevents a double save
         if (originalSong) await editSong(station, originalSong, enteredValues);
