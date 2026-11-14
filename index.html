@@ -45,7 +45,7 @@
       border-radius: 16px;
     }
     .station-section h2 { color: var(--accent); }
-    .station-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .station-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
     .station-tab {
       padding: 8px 20px;
       background: transparent;
@@ -87,7 +87,7 @@
       object-fit: cover;
     }
     .track-info { flex: 1; min-width: 0; }
-    .track-title, .track-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .track-title, .track-artist { overflow-wrap: anywhere; }
     .track-title { font-weight: 700; }
     .track-artist { margin-top: 4px; color: var(--text-muted); }
     .track-timing { flex: none; text-align: right; font-variant-numeric: tabular-nums; }
@@ -127,12 +127,36 @@
     /* Song lists */
     .table-wrapper { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; min-width: 800px; }
-    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-    th { color: var(--accent); cursor: pointer; user-select: none; white-space: nowrap; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); overflow-wrap: break-word; }
+    th { color: var(--accent); cursor: pointer; user-select: none; }
     th:hover { text-decoration: underline; }
     .meter-value { display: block; font-variant-numeric: tabular-nums; }
     .meter-track { height: 4px; margin-top: 4px; background: var(--border); border-radius: 2px; }
     .meter-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+
+    /* Phones in portrait: use as much width as possible */
+    @media (max-width: 600px) {
+      body { padding: 8px; }
+      h1 { margin-bottom: 12px; font-size: 1.25rem; }
+      .station-section { margin-bottom: 12px; padding: 10px; border-width: 1px; border-radius: 12px; }
+      .station-tab { flex: 1; padding: 8px 12px; } /* toggle buttons share the full width */
+      .station-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .stat-card { padding: 8px; }
+      .stat-value { font-size: 1.1rem; }
+      .track-card { flex-wrap: wrap; gap: 8px 12px; padding: 8px; }
+      .track-art { width: 48px; height: 48px; }
+      .track-timing { flex-basis: 100%; display: flex; justify-content: space-between; text-align: left; }
+      .track-length { margin-top: 0; }
+      table { min-width: 640px; }
+      th, td { padding: 8px 6px; }
+      th:first-child, td:first-child { /* keeps the title visible while scrolling sideways */
+        position: sticky;
+        left: 0;
+        min-width: 110px;
+        max-width: 140px;
+        background: var(--background);
+      }
+    }
   </style>
 </head>
 <body>
