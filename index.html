@@ -20,12 +20,13 @@
     }
     :root {
       --background: #000;
+      --surface: #111;
       --text: #f2f2f2;
       --text-muted: #8a8a8a;
       --border: #222;
       --chfi-accent: #00e5ff;
       --ckis-accent: #ff2e93;
-      --accent: var(--chfi-accent); /* changed by the script when you switch station */
+      --accent: var(--chfi-accent); /* each .station-section overrides this with its selected station */
     }
     * { box-sizing: border-box; }
     body {
@@ -35,7 +36,9 @@
       color: var(--text);
       font-family: 'Minecraft Seven', system-ui, sans-serif;
     }
-    h1 { margin: 0 0 16px; font-size: 1.5rem; }
+    h1 { margin: 0 0 24px; font-size: 1.5rem; }
+    h2 { margin: 0 0 12px; font-size: 1.25rem; }
+    .station-section { margin-bottom: 40px; }
     .station-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
     .station-tab {
       padding: 8px 20px;
@@ -43,6 +46,7 @@
       color: var(--text-muted);
       border: 2px solid var(--border);
       border-radius: 999px;
+      font-family: inherit;
       font-size: 1rem;
       cursor: pointer;
     }
@@ -52,42 +56,65 @@
       border-color: var(--accent);
       font-weight: 700;
     }
-    .status-message { color: var(--text-muted); padding: 16px 0; }
+    .status-message { color: var(--text-muted); padding: 8px 0; }
+
+    /* Recently played */
+    .day-group { margin-bottom: 8px; }
+    .day-summary { cursor: pointer; padding: 10px 0; color: var(--accent); font-weight: 700; }
+    .day-count { margin-left: 12px; color: var(--text-muted); font-weight: 400; }
+    .track-list { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; }
+    .track-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .track-art {
+      flex: none;
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      background: var(--border);
+      object-fit: cover;
+    }
+    .track-info { flex: 1; min-width: 0; }
+    .track-title, .track-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .track-title { font-weight: 700; }
+    .track-artist { margin-top: 4px; color: var(--text-muted); }
+    .track-timing { flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+    .track-time { color: var(--accent); }
+    .track-length { margin-top: 4px; color: var(--text-muted); font-size: 0.85rem; }
+
+    /* Song lists */
     .table-wrapper { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; min-width: 800px; }
     th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-    th {
-      color: var(--accent);
-      cursor: pointer;
-      user-select: none;
-      white-space: nowrap;
-    }
+    th { color: var(--accent); cursor: pointer; user-select: none; white-space: nowrap; }
     th:hover { text-decoration: underline; }
     .meter-value { display: block; font-variant-numeric: tabular-nums; }
     .meter-track { height: 4px; margin-top: 4px; background: var(--border); border-radius: 2px; }
     .meter-fill { height: 100%; background: var(--accent); border-radius: 2px; }
-    h2 { margin: 0 0 8px; font-size: 1.1rem; }
-    .recent-widget {
-      margin-bottom: 24px;
-      padding: 16px;
-      border: 2px solid var(--accent);
-      border-radius: 12px;
-    }
-    .recent-widget h2 { color: var(--accent); }
-    .recent-table { min-width: 700px; }
-    .recent-table th { cursor: default; }
-    .recent-table th:hover { text-decoration: none; }
-    .album-art { display: block; width: 48px; height: 48px; border-radius: 4px; }
-    .apple-music-link { color: var(--accent); }
   </style>
 </head>
 <body>
   <h1>Radio Stats</h1>
-  <div id="recently-played"></div>
-  <h2>Song lists</h2>
-  <div class="station-tabs" id="station-tabs"></div>
-  <div class="status-message" id="status-message"></div>
-  <div class="table-wrapper"><table id="songs-table"></table></div>
+
+  <section class="station-section" id="recent-section">
+    <h2>Recently played</h2>
+    <div class="station-tabs" id="recent-station-tabs"></div>
+    <div class="status-message" id="recent-status-message"></div>
+    <div id="recent-days"></div>
+  </section>
+
+  <section class="station-section" id="songs-section">
+    <h2>Song lists</h2>
+    <div class="station-tabs" id="songs-station-tabs"></div>
+    <div class="status-message" id="songs-status-message"></div>
+    <div class="table-wrapper"><table id="songs-table"></table></div>
+  </section>
 
   <script>
     const STATIONS = [
@@ -96,24 +123,182 @@
     ];
     const MAX_METER_VALUE = 100;
     const EMPTY_CELL_TEXT = '\u2014';
-
+    const TIME_ZONE = 'America/Toronto';
     const RECENTLY_PLAYED_API_URL = 'https://script.google.com/macros/s/AKfycbyO8InJxfS1k7wqyasNp8Sd4dZb71WP0HT07RvWrYpdVZ5qN7ZeQBSUqNN7xQgwiLs/exec';
-    const RECENTLY_PLAYED_LIMIT = 20;
     const RECENTLY_PLAYED_REFRESH_MS = 60 * 1000;
 
-    // Same headers as the Google Sheet. Types: 'text', 'image' (thumbnail), 'link'.
-    const RECENTLY_PLAYED_COLUMNS = [
-      { header: 'track_id', type: 'text' },
-      { header: 'start_time', type: 'text' },
-      { header: 'artist', type: 'text' },
-      { header: 'title', type: 'text' },
-      { header: 'album', type: 'text' },
-      { header: 'length_seconds', type: 'text' },
-      { header: 'album_art_url', type: 'image' },
-      { header: 'apple_music_url', type: 'link' },
-    ];
+    // ---------- Shared helpers ----------
 
-    const recentlyPlayedWidgets = {}; // callSign -> { statusElement, tableElement }
+    function isMissing(value) {
+      return value === null || value === undefined || value === '';
+    }
+
+    function isSecureUrl(value) {
+      return typeof value === 'string' && value.startsWith('https://');
+    }
+
+    function createElement(tagName, text, className) {
+      const element = document.createElement(tagName);
+      if (text !== undefined) element.textContent = text;
+      if (className) element.className = className;
+      return element;
+    }
+
+    // Builds one button per station inside containerElement.
+    function createStationToggle(containerElement, onStationSelected) {
+      STATIONS.forEach((station) => {
+        const tab = createElement('button', station.callSign, 'station-tab');
+        tab.dataset.callSign = station.callSign;
+        tab.addEventListener('click', () => onStationSelected(station));
+        containerElement.appendChild(tab);
+      });
+    }
+
+    // Highlights the station's tab and gives the whole section that station's accent color.
+    function markActiveStation(sectionElement, station) {
+      sectionElement.style.setProperty('--accent', `var(${station.accentVariable})`);
+      sectionElement.querySelectorAll('.station-tab').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.callSign === station.callSign);
+      });
+    }
+
+    // ---------- Recently played ----------
+
+    const recentSectionElement = document.getElementById('recent-section');
+    const recentTabsElement = document.getElementById('recent-station-tabs');
+    const recentStatusMessageElement = document.getElementById('recent-status-message');
+    const recentDaysElement = document.getElementById('recent-days');
+
+    const dateLabelFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }); // gives yyyy-MM-dd
+
+    const recentTracksByCallSign = {};
+    const openDayLabels = new Set(); // days the user has expanded; survives the automatic refresh
+    let hasInitializedOpenDays = false;
+    let activeRecentStation = STATIONS[0];
+
+    // Pure calendar arithmetic, so daylight saving changes can't shift the day.
+    function shiftDateLabel(dateLabel, dayOffset) {
+      const [year, month, day] = dateLabel.split('-').map(Number);
+      return new Date(Date.UTC(year, month - 1, day + dayOffset)).toISOString().slice(0, 10);
+    }
+
+    function buildDayLabel(dateLabel) {
+      const todayLabel = dateLabelFormatter.format(new Date());
+      const readableDate = new Date(`${dateLabel}T12:00:00Z`).toLocaleDateString('en-CA', {
+        timeZone: 'UTC',
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      });
+      if (dateLabel === todayLabel) return `Today \u00b7 ${readableDate}`;
+      if (dateLabel === shiftDateLabel(todayLabel, -1)) return `Yesterday \u00b7 ${readableDate}`;
+      return readableDate;
+    }
+
+    function groupTracksByDate(tracks) {
+      const tracksByDate = new Map(); // tracks arrive newest first, so days stay newest first
+      tracks.forEach((track) => {
+        if (!tracksByDate.has(track.play_date)) tracksByDate.set(track.play_date, []);
+        tracksByDate.get(track.play_date).push(track);
+      });
+      return tracksByDate;
+    }
+
+    function createTrackArt(albumArtUrl) {
+      if (!isSecureUrl(albumArtUrl)) return createElement('div', undefined, 'track-art'); // grey placeholder
+      const art = createElement('img', undefined, 'track-art');
+      art.src = albumArtUrl;
+      art.alt = '';
+      art.loading = 'lazy';
+      return art;
+    }
+
+    function createTrackCard(track) {
+      const info = createElement('div', undefined, 'track-info');
+      info.append(
+        createElement('div', track.title, 'track-title'),
+        createElement('div', track.artist, 'track-artist')
+      );
+
+      const timing = createElement('div', undefined, 'track-timing');
+      timing.append(
+        createElement('div', track.start_time, 'track-time'),
+        createElement('div', `${track.length_seconds} sec`, 'track-length')
+      );
+
+      const card = createElement('div', undefined, 'track-card');
+      card.append(createTrackArt(track.album_art_url), info, timing);
+      return card;
+    }
+
+    function createDayGroup(dateLabel, dayTracks) {
+      const summary = createElement('summary', buildDayLabel(dateLabel), 'day-summary');
+      summary.appendChild(createElement('span', `${dayTracks.length} tracks`, 'day-count'));
+
+      const trackList = createElement('div', undefined, 'track-list');
+      dayTracks.forEach((track) => trackList.appendChild(createTrackCard(track)));
+
+      const dayGroup = createElement('details', undefined, 'day-group');
+      dayGroup.open = openDayLabels.has(dateLabel);
+      dayGroup.addEventListener('toggle', () => {
+        if (dayGroup.open) openDayLabels.add(dateLabel);
+        else openDayLabels.delete(dateLabel);
+      });
+      dayGroup.append(summary, trackList);
+      return dayGroup;
+    }
+
+    function renderRecentlyPlayed() {
+      const tracks = recentTracksByCallSign[activeRecentStation.callSign];
+      recentDaysElement.replaceChildren();
+      if (!tracks) return;
+
+      const tracksByDate = groupTracksByDate(tracks);
+      if (!hasInitializedOpenDays && tracksByDate.size > 0) {
+        openDayLabels.add(tracksByDate.keys().next().value); // newest day starts expanded
+        hasInitializedOpenDays = true;
+      }
+      tracksByDate.forEach((dayTracks, dateLabel) => {
+        recentDaysElement.appendChild(createDayGroup(dateLabel, dayTracks));
+      });
+
+      recentStatusMessageElement.textContent = tracks.length === 0 ? 'No plays recorded yet.' : '';
+    }
+
+    async function fetchRecentTracks(station) {
+      const response = await fetch(`${RECENTLY_PLAYED_API_URL}?station=${station.callSign}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      if (payload.error) throw new Error(payload.error);
+      return payload.tracks;
+    }
+
+    async function refreshRecentlyPlayed(station) {
+      try {
+        recentTracksByCallSign[station.callSign] = await fetchRecentTracks(station);
+      } catch (error) {
+        if (station === activeRecentStation) {
+          recentStatusMessageElement.textContent = `Could not load recently played: ${error.message}`;
+        }
+        return;
+      }
+      if (station === activeRecentStation) renderRecentlyPlayed(); // ignore results for a station you've switched away from
+    }
+
+    function selectRecentStation(station) {
+      activeRecentStation = station;
+      markActiveStation(recentSectionElement, station);
+      recentStatusMessageElement.textContent = recentTracksByCallSign[station.callSign] ? '' : 'Loading...';
+      renderRecentlyPlayed(); // shows cached tracks instantly when this station was loaded before
+      refreshRecentlyPlayed(station);
+    }
+
+    // ---------- Song lists ----------
+
+    const songsSectionElement = document.getElementById('songs-section');
+    const songsTabsElement = document.getElementById('songs-station-tabs');
+    const songsStatusMessageElement = document.getElementById('songs-status-message');
+    const songsTableElement = document.getElementById('songs-table');
 
     // Column types: 'text', 'number', 'duration' (seconds shown as m:ss), 'meter' (0-100 with a bar).
     // The station duration header is built from the call sign, e.g. "chfi duration" or "ckis duration".
@@ -132,29 +317,14 @@
     }
 
     const songsByCallSign = {};
-    let activeStation = STATIONS[0];
+    let activeSongStation = STATIONS[0];
     let sortHeader = null;
     let sortDirection = 1; // 1 = ascending, -1 = descending
-
-    const stationTabsElement = document.getElementById('station-tabs');
-    const statusMessageElement = document.getElementById('status-message');
-    const songsTableElement = document.getElementById('songs-table');
-
-    function isMissing(value) {
-      return value === null || value === undefined || value === '';
-    }
 
     function formatDuration(totalSeconds) {
       const minutes = Math.floor(totalSeconds / 60);
       const seconds = String(Math.round(totalSeconds % 60)).padStart(2, '0');
       return `${minutes}:${seconds}`;
-    }
-
-    function createElement(tagName, text, className) {
-      const element = document.createElement(tagName);
-      if (text !== undefined) element.textContent = text;
-      if (className) element.className = className;
-      return element;
     }
 
     function createCell(column, value) {
@@ -195,8 +365,8 @@
     }
 
     function renderTable() {
-      const columns = buildColumns(activeStation);
-      const songs = [...(songsByCallSign[activeStation.callSign] || [])];
+      const columns = buildColumns(activeSongStation);
+      const songs = [...(songsByCallSign[activeSongStation.callSign] || [])];
       if (sortHeader) songs.sort(compareSongs);
 
       songsTableElement.replaceChildren();
@@ -216,7 +386,7 @@
         body.appendChild(row);
       });
 
-      statusMessageElement.textContent = songs.length === 0 ? 'No songs yet. Add rows to the CSV file.' : '';
+      songsStatusMessageElement.textContent = songs.length === 0 ? 'No songs yet. Add rows to the CSV file.' : '';
     }
 
     async function loadStationSongs(station) {
@@ -231,126 +401,32 @@
       songsByCallSign[station.callSign] = parsed.data;
     }
 
-    function selectStation(station) {
-      activeStation = station;
+    function selectSongStation(station) {
+      activeSongStation = station;
       sortHeader = null;
-      document.documentElement.style.setProperty('--accent', `var(${station.accentVariable})`);
-      document.querySelectorAll('.station-tab').forEach((tab) => {
-        tab.classList.toggle('active', tab.dataset.callSign === station.callSign);
-      });
+      markActiveStation(songsSectionElement, station);
       renderTable();
     }
 
-    function createStationTabs() {
-      STATIONS.forEach((station) => {
-        const tab = createElement('button', station.callSign, 'station-tab');
-        tab.dataset.callSign = station.callSign;
-        tab.addEventListener('click', () => selectStation(station));
-        stationTabsElement.appendChild(tab);
-      });
-    }
-
-    function isSecureUrl(value) {
-      return typeof value === 'string' && value.startsWith('https://');
-    }
-
-    function createRecentlyPlayedCell(column, value) {
-      const cell = createElement('td');
-      const isLinkType = column.type === 'image' || column.type === 'link';
-      if (isMissing(value) || (isLinkType && !isSecureUrl(value))) {
-        cell.textContent = EMPTY_CELL_TEXT;
-      } else if (column.type === 'image') {
-        const albumArt = createElement('img', undefined, 'album-art');
-        albumArt.src = value;
-        albumArt.alt = '';
-        albumArt.loading = 'lazy';
-        cell.appendChild(albumArt);
-      } else if (column.type === 'link') {
-        const link = createElement('a', 'Open', 'apple-music-link');
-        link.href = value;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        cell.appendChild(link);
-      } else {
-        cell.textContent = value;
-      }
-      return cell;
-    }
-
-    function createRecentlyPlayedWidget(station) {
-      const widgetElement = createElement('section', undefined, 'recent-widget');
-      widgetElement.style.setProperty('--accent', `var(${station.accentVariable})`);
-
-      const statusElement = createElement('div', 'Loading...', 'status-message');
-      const tableElement = createElement('table', undefined, 'recent-table');
-      const tableWrapperElement = createElement('div', undefined, 'table-wrapper');
-      tableWrapperElement.appendChild(tableElement);
-
-      widgetElement.append(
-        createElement('h2', `${station.callSign} recently played`),
-        statusElement,
-        tableWrapperElement
-      );
-      document.getElementById('recently-played').appendChild(widgetElement);
-      recentlyPlayedWidgets[station.callSign] = { statusElement, tableElement };
-    }
-
-    function renderRecentlyPlayed(station, tracks) {
-      const { statusElement, tableElement } = recentlyPlayedWidgets[station.callSign];
-      tableElement.replaceChildren();
-
-      const headerRow = createElement('tr');
-      RECENTLY_PLAYED_COLUMNS.forEach((column) => headerRow.appendChild(createElement('th', column.header)));
-      tableElement.appendChild(createElement('thead')).appendChild(headerRow);
-
-      const body = tableElement.appendChild(createElement('tbody'));
-      tracks.forEach((track) => {
-        const row = createElement('tr');
-        RECENTLY_PLAYED_COLUMNS.forEach((column) => {
-          row.appendChild(createRecentlyPlayedCell(column, track[column.header]));
-        });
-        body.appendChild(row);
-      });
-
-      statusElement.textContent = tracks.length === 0 ? 'No plays recorded yet.' : '';
-    }
-
-    async function refreshRecentlyPlayed(station) {
-      try {
-        const requestUrl = `${RECENTLY_PLAYED_API_URL}?station=${station.callSign}&limit=${RECENTLY_PLAYED_LIMIT}`;
-        const response = await fetch(requestUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json();
-        if (payload.error) throw new Error(payload.error);
-        renderRecentlyPlayed(station, payload.tracks);
-      } catch (error) {
-        recentlyPlayedWidgets[station.callSign].statusElement.textContent =
-          `Could not load recently played: ${error.message}`;
-      }
-    }
-
-    function refreshAllRecentlyPlayed() {
-      return Promise.all(STATIONS.map(refreshRecentlyPlayed));
-    }
-
-    function startRecentlyPlayed() {
-      STATIONS.forEach(createRecentlyPlayedWidget);
-      refreshAllRecentlyPlayed();
-      setInterval(() => {
-        if (!document.hidden) refreshAllRecentlyPlayed(); // skip refreshing while the tab is in the background
-      }, RECENTLY_PLAYED_REFRESH_MS);
-    }
+    // ---------- Start ----------
 
     async function start() {
-      createStationTabs();
-      startRecentlyPlayed();
+      createStationToggle(recentTabsElement, selectRecentStation);
+      createStationToggle(songsTabsElement, selectSongStation);
+
+      selectRecentStation(activeRecentStation);
+      setInterval(() => {
+        if (!document.hidden) refreshRecentlyPlayed(activeRecentStation); // skip while the tab is in the background
+      }, RECENTLY_PLAYED_REFRESH_MS);
+
+      markActiveStation(songsSectionElement, activeSongStation);
       try {
         await Promise.all(STATIONS.map(loadStationSongs));
       } catch (error) {
-        statusMessageElement.textContent = `Could not load song data: ${error.message}`;
+        songsStatusMessageElement.textContent = `Could not load song data: ${error.message}`;
         return;
       }
-      selectStation(activeStation);
+      selectSongStation(activeSongStation);
     }
 
     start();
