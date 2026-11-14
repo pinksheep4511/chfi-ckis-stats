@@ -741,7 +741,7 @@
       const body = songsTableElement.appendChild(createElement('tbody'));
       songs.forEach((song) => {
         const row = createElement('tr');
-        columns.forEach((column) => row.appendChild(createCell(column, song[column.header])));
+        columns.forEach((column) => row.appendChild(createCell(column, song[column.header], song, songs)));
         if (isEditingUnlocked()) row.appendChild(createRowActionsCell(song));
         body.appendChild(row);
       });
