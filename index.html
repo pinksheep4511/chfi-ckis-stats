@@ -79,6 +79,17 @@
       border: 1px solid var(--border);
       border-radius: 12px;
     }
+    
+    /* Highlight the most recent track */
+    .day-group:first-of-type .track-list .track-card:first-child {
+      border-color: #ffaa00;
+      background: #3f2a00;
+    }
+    
+    .day-group:first-of-type .track-list .track-card:first-child .track-time {
+      color: #ffaa00; /* Make the time match the highlight */
+    }
+    
     .track-art {
       flex: none;
       width: 64px;
@@ -677,7 +688,7 @@
         body.appendChild(row);
       });
 
-      songsStatusMessageElement.textContent = songs.length === 0 ? 'No songs yet. Add rows to the CSV file.' : '';
+      songsStatusMessageElement.textContent = songs.length === 0 ? 'No songs yet.' : '';
     }
 
     function parseSongsCsv(csvText, shouldConvertTypes) {
