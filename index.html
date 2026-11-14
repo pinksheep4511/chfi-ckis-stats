@@ -289,6 +289,10 @@
       return `${track.artist} - ${track.title}`.trim().toLowerCase();
     }
 
+    function buildTrackLengthText(track) {
+      return `${formatDuration(Number(track.length_seconds))} \u00b7 ${track.title}`;
+    }
+
     // To add a stat, add one { label, value } object to the array this returns.
     function calculateStationStats(tracks) {
       const playCountBySongKey = new Map();
@@ -307,10 +311,29 @@
         null
       );
 
+      // Tracks with a missing or zero length are ignored for the length stats.
+      const tracksWithLength = tracks.filter((track) => Number(track.length_seconds) > 0);
+      const lengthStats = [];
+      if (tracksWithLength.length > 0) {
+        const shortestTrack = tracksWithLength.reduce((shortest, track) =>
+          Number(track.length_seconds) < Number(shortest.length_seconds) ? track : shortest
+        );
+        const longestTrack = tracksWithLength.reduce((longest, track) =>
+          Number(track.length_seconds) > Number(longest.length_seconds) ? track : longest
+        );
+        const averageSeconds = Math.round(totalSeconds / tracksWithLength.length);
+        lengthStats.push(
+          { label: 'Average length', value: formatDuration(averageSeconds) },
+          { label: 'Shortest track', value: buildTrackLengthText(shortestTrack) },
+          { label: 'Longest track', value: buildTrackLengthText(longestTrack) }
+        );
+      }
+
       return [
         { label: 'Plays (7 days)', value: tracks.length },
         { label: 'Unique songs', value: playCountBySongKey.size },
         { label: 'Airtime', value: formatTotalDuration(totalSeconds) },
+        ...lengthStats,
         { label: 'Most played', value: `${mostPlayed.track.title} (${mostPlayed.playCount}x)` },
       ];
     }
