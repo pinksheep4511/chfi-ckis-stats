@@ -353,8 +353,13 @@
           Number(track.length_seconds) > Number(longest.length_seconds) ? track : longest
         );
         const averageSeconds = Math.round(totalSeconds / tracksWithLength.length);
+        const medianSeconds = getMedian(tracksWithLength)
         lengthStats.push(
-          { label: 'Average length', value: formatDuration(averageSeconds) },
+          {
+            label: 'Average length',
+            value: formatDuration(averageSeconds),
+            detail: `Median ${formatDuration(medianSeconds)}`,
+          },
           {
             label: 'Shortest track',
             value: formatDuration(Number(shortestTrack.length_seconds)),
@@ -371,7 +376,7 @@
       return [
         { label: 'Plays (7 days)', value: tracks.length },
         { label: 'Unique songs', value: playCountBySongKey.size },
-        { label: 'Airtime', value: formatTotalDuration(totalSeconds) },
+        { label: 'Total airtime', value: formatTotalDuration(totalSeconds) },
         ...lengthStats,
         {
           label: 'Most played',
@@ -379,6 +384,19 @@
           detail: buildTrackNameText(mostPlayed.track),
         },
       ];
+    }
+
+    function getMedian(numbers) {
+      if (numbers.length === 0) return undefined;
+    
+      // Create a shallow copy and sort numerically
+      const sorted = [...numbers].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+    
+      // Return middle element if odd, or average of two middle elements if even
+      return sorted.length % 2 !== 0
+        ? sorted[mid]
+        : (sorted[mid - 1] + sorted[mid]) / 2;
     }
 
     function renderStationStats(tracks) {
