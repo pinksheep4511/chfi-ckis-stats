@@ -664,17 +664,18 @@
         } else {
           const numericValue = Number(value);
           
-          // Only include valid, non-missing combos in the ranking pool
+          // Filter out missing, null, empty strings, or NaN so they don't count towards the pool or totalSongs (n)
           const comboValues = allSongs
-            .map(s => Number(s['note count (combo)']))
-            .filter(n => !isNaN(n) && n !== null && n !== undefined && String(n).trim() !== '')
+            .map(s => s['note count (combo)'])
+            .filter(val => !isMissing(val) && !isNaN(Number(val)) && String(val).trim() !== '')
+            .map(val => Number(val))
             .sort((a, b) => b - a); // Highest combo first
           
           const rank = comboValues.indexOf(numericValue) !== -1 ? comboValues.indexOf(numericValue) + 1 : comboValues.length + 1;
           const totalSongs = comboValues.length || 1;
           
           // Formula: percentile = (b + 0.5e) / n
-          // Where b = number of items strictly worse, e = number of items tied, n = total valid items
+          // Where b = number of items strictly worse, e = number of items tied, n = total valid ranked items
           let worseCount = 0;
           let tieCount = 0;
           comboValues.forEach(v => {
@@ -683,7 +684,7 @@
           });
           const percentile = Math.round(((worseCount + 0.5 * tieCount) / totalSongs) * 100);
           
-          cell.textContent = `${numericValue} (${formatOrdinal(rank)} \u00b7 ${percentile}th percentile)`;
+          cell.textContent = `${numericValue} (#${rank} \u00b7 ${percentile}th percentile)`;
         }
       } else if (column.type === 'nps') {
         const duration = Number(song[column.durationKey]);
