@@ -142,6 +142,23 @@
     }
     #songs-content { margin-top: 12px; }
 
+    /* Live radio */
+    .radio-controls { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+    .radio-button {
+      min-width: 96px;
+      padding: 8px 24px;
+      background: var(--accent);
+      color: var(--background);
+      border: 2px solid var(--accent);
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .radio-volume { flex: 1; min-width: 0; accent-color: var(--accent); }
+    #radio-now-playing { margin-top: 8px; }
+
     /* Song lists */
     .table-wrapper { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; min-width: 800px; }
@@ -507,23 +524,6 @@
       renderRecentlyPlayed(); // shows cached tracks instantly when this station was loaded before
       refreshRecentlyPlayed(station);
     }
-
-    /* Live radio */
-    .radio-controls { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
-    .radio-button {
-      min-width: 96px;
-      padding: 8px 24px;
-      background: var(--accent);
-      color: var(--background);
-      border: 2px solid var(--accent);
-      border-radius: 999px;
-      font-family: inherit;
-      font-size: 1rem;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    .radio-volume { flex: 1; min-width: 0; accent-color: var(--accent); }
-    #radio-now-playing { margin-top: 8px; }
 
     // ---------- Song lists ----------
 
