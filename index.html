@@ -169,6 +169,46 @@
     .meter-track { height: 4px; margin-top: 4px; background: var(--border); border-radius: 2px; }
     .meter-fill { height: 100%; background: var(--accent); border-radius: 2px; }
 
+    /* Song editing */
+    .song-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .song-toolbar:empty { display: none; }
+    .action-button {
+      padding: 6px 14px;
+      background: transparent;
+      color: var(--accent);
+      border: 2px solid var(--accent);
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .action-button.danger { color: #ff5555; border-color: #ff5555; }
+    .row-actions { display: flex; gap: 6px; }
+    th.actions-header { cursor: default; }
+    th.actions-header:hover { text-decoration: none; }
+    .song-form {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .song-form-field { display: flex; flex-direction: column; gap: 4px; }
+    .song-form input {
+      width: 100%;
+      padding: 8px;
+      background: var(--background);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 1rem;
+    }
+    .song-form-buttons { display: flex; gap: 8px; grid-column: 1 / -1; }
+
     /* Phones in portrait: use as much width as possible */
     @media (max-width: 600px) {
       body { padding: 8px; }
@@ -223,6 +263,8 @@
     </button>
     <div id="songs-content" hidden>
       <div class="station-tabs" id="songs-station-tabs"></div>
+      <div class="song-toolbar" id="song-toolbar"></div>
+      <div id="song-editor"></div>
       <div class="status-message" id="songs-status-message"></div>
       <div class="table-wrapper"><table id="songs-table"></table></div>
     </div>
@@ -248,6 +290,12 @@
     const TIME_ZONE = 'America/Toronto';
     const RECENTLY_PLAYED_API_URL = 'https://script.google.com/macros/s/AKfycbyO8InJxfS1k7wqyasNp8Sd4dZb71WP0HT07RvWrYpdVZ5qN7ZeQBSUqNN7xQgwiLs/exec';
     const RECENTLY_PLAYED_REFRESH_MS = 60 * 1000;
+
+    const GITHUB_OWNER = 'pinksheep4511';
+    const GITHUB_REPOSITORY = 'chfi-ckis-stats';
+    const GITHUB_BRANCH = 'main';
+    const GITHUB_TOKEN_STORAGE_KEY = 'githubEditToken';
+    const EDIT_MODE_URL_HASH = '#edit'; // the Unlock button only appears when the page address ends with this
 
     // ---------- Shared helpers ----------
 
@@ -619,33 +667,283 @@
         headerRow.appendChild(headerCell);
       });
       songsTableElement.appendChild(createElement('thead')).appendChild(headerRow);
+      if (isEditingUnlocked()) headerRow.appendChild(createElement('th', 'Actions', 'actions-header'));
 
       const body = songsTableElement.appendChild(createElement('tbody'));
       songs.forEach((song) => {
         const row = createElement('tr');
         columns.forEach((column) => row.appendChild(createCell(column, song[column.header])));
+        if (isEditingUnlocked()) row.appendChild(createRowActionsCell(song));
         body.appendChild(row);
       });
 
       songsStatusMessageElement.textContent = songs.length === 0 ? 'No songs yet. Add rows to the CSV file.' : '';
     }
 
-    async function loadStationSongs(station) {
-      const response = await fetch(station.csvPath);
-      if (!response.ok) throw new Error(`${station.csvPath} returned HTTP ${response.status}`);
-      const parsed = Papa.parse(await response.text(), {
+    function parseSongsCsv(csvText, shouldConvertTypes) {
+      return Papa.parse(csvText, {
         header: true,
         skipEmptyLines: true,
-        dynamicTyping: true,
+        dynamicTyping: shouldConvertTypes,
         transformHeader: (header) => header.trim(),
       });
-      songsByCallSign[station.callSign] = parsed.data;
+    }
+
+    async function fetchSongsFileFromPages(station) {
+      const response = await fetch(station.csvPath);
+      if (!response.ok) throw new Error(`${station.csvPath} returned HTTP ${response.status}`);
+      return response.text();
+    }
+
+    // When unlocked, read straight from GitHub so you never see a stale cached copy of your own edits.
+    async function loadStationSongs(station) {
+      const csvText = isEditingUnlocked()
+        ? (await fetchSongsFileFromGitHub(station)).text
+        : await fetchSongsFileFromPages(station);
+      songsByCallSign[station.callSign] = parseSongsCsv(csvText, true).data;
     }
 
     function selectSongStation(station) {
       activeSongStation = station;
       sortHeader = null;
+      closeSongEditor();
       markActiveStation(songsSectionElement, station);
+      renderTable();
+    }
+
+    // ---------- Song editing (owner only, saves straight to GitHub) ----------
+
+    const songToolbarElement = document.getElementById('song-toolbar');
+    const songEditorElement = document.getElementById('song-editor');
+
+    function getGitHubToken() {
+      return localStorage.getItem(GITHUB_TOKEN_STORAGE_KEY);
+    }
+
+    function isEditingUnlocked() {
+      return Boolean(getGitHubToken());
+    }
+
+    function decodeBase64Utf8(base64Text) {
+      const binaryText = atob(base64Text.replace(/\n/g, ''));
+      const bytes = Uint8Array.from(binaryText, (character) => character.charCodeAt(0));
+      return new TextDecoder().decode(bytes); // keeps accents like the "e" in Beyonce intact
+    }
+
+    function encodeBase64Utf8(text) {
+      const bytes = new TextEncoder().encode(text);
+      return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''));
+    }
+
+    function buildGitHubContentsUrl(station) {
+      return `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPOSITORY}/contents/${station.csvPath}`;
+    }
+
+    async function callGitHubApi(requestUrl, requestOptions = {}) {
+      const response = await fetch(requestUrl, {
+        ...requestOptions,
+        cache: 'no-store', // GitHub's answers can be cached for a minute, which would give a stale file version
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${getGitHubToken()}`,
+          ...requestOptions.headers,
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`GitHub said ${response.status}: ${payload.message || 'no details'}`);
+      return payload;
+    }
+
+    async function fetchSongsFileFromGitHub(station) {
+      const payload = await callGitHubApi(`${buildGitHubContentsUrl(station)}?ref=${GITHUB_BRANCH}`);
+      return { text: decodeBase64Utf8(payload.content), sha: payload.sha };
+    }
+
+    async function writeSongsFileToGitHub(station, csvText, previousSha, commitMessage) {
+      await callGitHubApi(buildGitHubContentsUrl(station), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: commitMessage,
+          content: encodeBase64Utf8(csvText),
+          sha: previousSha,
+          branch: GITHUB_BRANCH,
+        }),
+      });
+    }
+
+    // Re-reads the file right before writing, so a change made on another device is never overwritten.
+    async function updateStationSongs(station, buildNewRows, commitMessage) {
+      const { text, sha } = await fetchSongsFileFromGitHub(station);
+      const parsed = parseSongsCsv(text, false); // keep every value as the exact text in the file
+      const headers = parsed.meta.fields?.length
+        ? parsed.meta.fields
+        : buildColumns(station).map((column) => column.header);
+
+      const newRows = buildNewRows(parsed.data);
+      const newCsvText = Papa.unparse(
+        { fields: headers, data: newRows.map((row) => headers.map((header) => row[header] ?? '')) },
+        { newline: '\n' }
+      );
+
+      await writeSongsFileToGitHub(station, newCsvText, sha, commitMessage);
+      songsByCallSign[station.callSign] = parseSongsCsv(newCsvText, true).data;
+    }
+
+    async function applySongChange(station, commitMessage, buildNewRows) {
+      songsStatusMessageElement.textContent = 'Saving...';
+      try {
+        await updateStationSongs(station, buildNewRows, commitMessage);
+      } catch (error) {
+        songsStatusMessageElement.textContent = `Could not save: ${error.message}`;
+        return; // keeps the form open so nothing you typed is lost
+      }
+      closeSongEditor();
+      renderTable(); // also clears the "Saving..." message
+    }
+
+    // A song is identified by title + artist, so each list can only hold a given song once.
+    function buildSongIdentity(song) {
+      return `${song.name ?? ''} - ${song.artist ?? ''}`.trim().toLowerCase();
+    }
+
+    function findSongIndex(rows, song) {
+      const identity = buildSongIdentity(song);
+      return rows.findIndex((row) => buildSongIdentity(row) === identity);
+    }
+
+    function addSong(station, newSong) {
+      return applySongChange(station, `Add song: ${newSong.name}`, (rows) => {
+        if (findSongIndex(rows, newSong) !== -1) throw new Error('That title and artist is already in this list.');
+        return [...rows, newSong];
+      });
+    }
+
+    function editSong(station, originalSong, updatedValues) {
+      return applySongChange(station, `Edit song: ${originalSong.name}`, (rows) => {
+        const originalIndex = findSongIndex(rows, originalSong);
+        if (originalIndex === -1) throw new Error('That song changed or was removed. Reload the page and try again.');
+
+        const updatedSong = { ...rows[originalIndex], ...updatedValues }; // keeps any CSV columns the form doesn't show
+        const duplicateIndex = findSongIndex(rows, updatedSong);
+        if (duplicateIndex !== -1 && duplicateIndex !== originalIndex) {
+          throw new Error('That title and artist is already in this list.');
+        }
+        return rows.map((row, rowIndex) => (rowIndex === originalIndex ? updatedSong : row));
+      });
+    }
+
+    function deleteSong(station, song) {
+      if (!window.confirm(`Delete "${song.name}" by ${song.artist} from ${station.callSign}?`)) return;
+      return applySongChange(station, `Delete song: ${song.name}`, (rows) => {
+        const songIndex = findSongIndex(rows, song);
+        if (songIndex === -1) throw new Error('That song was already removed. Reload the page.');
+        return rows.filter((row, rowIndex) => rowIndex !== songIndex);
+      });
+    }
+
+    function createActionButton(label, onClick, extraClassName = '') {
+      const button = createElement('button', label, `action-button ${extraClassName}`.trim());
+      button.type = 'button';
+      button.addEventListener('click', onClick);
+      return button;
+    }
+
+    function createRowActionsCell(song) {
+      const actions = createElement('div', undefined, 'row-actions');
+      actions.append(
+        createActionButton('Edit', () => openSongEditor(song)),
+        createActionButton('Delete', () => deleteSong(activeSongStation, song), 'danger')
+      );
+      const cell = createElement('td');
+      cell.appendChild(actions);
+      return cell;
+    }
+
+    function closeSongEditor() {
+      songEditorElement.replaceChildren();
+    }
+
+    // One form for both adding (originalSong is null) and editing.
+    function openSongEditor(originalSong) {
+      const station = activeSongStation;
+      const columns = buildColumns(station);
+      const form = createElement('form', undefined, 'song-form');
+
+      columns.forEach((column) => {
+        const input = createElement('input');
+        input.name = column.header;
+        input.type = column.type === 'text' ? 'text' : 'number';
+        if (column.type !== 'text') input.step = 'any';
+        if (column.type === 'meter') {
+          input.min = '0';
+          input.max = String(MAX_METER_VALUE);
+        }
+        input.required = column.header === 'name' || column.header === 'artist';
+        input.value = originalSong && !isMissing(originalSong[column.header]) ? originalSong[column.header] : '';
+
+        const unitSuffix = column.type === 'duration' ? ' (sec)' : '';
+        const field = createElement('label', undefined, 'song-form-field');
+        field.append(createElement('span', `${column.label}${unitSuffix}`, 'stat-label'), input);
+        form.appendChild(field);
+      });
+
+      const saveButton = createElement('button', 'Save', 'action-button');
+      saveButton.type = 'submit';
+      const buttonRow = createElement('div', undefined, 'song-form-buttons');
+      buttonRow.append(saveButton, createActionButton('Cancel', closeSongEditor));
+      form.appendChild(buttonRow);
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        const enteredValues = Object.fromEntries(
+          columns.map((column) => [column.header, String(formData.get(column.header)).trim()])
+        );
+        saveButton.disabled = true; // prevents a double save
+        if (originalSong) await editSong(station, originalSong, enteredValues);
+        else await addSong(station, enteredValues);
+        saveButton.disabled = false;
+      });
+
+      songEditorElement.replaceChildren(form);
+      form.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      form.querySelector('input').focus();
+    }
+
+    function renderSongToolbar() {
+      songToolbarElement.replaceChildren();
+      if (isEditingUnlocked()) {
+        songToolbarElement.append(
+          createActionButton('Add song', () => openSongEditor(null)),
+          createActionButton('Lock editing', lockEditing)
+        );
+      } else if (location.hash === EDIT_MODE_URL_HASH) {
+        songToolbarElement.appendChild(createActionButton('Unlock editing', unlockEditing));
+      }
+    }
+
+    async function unlockEditing() {
+      const enteredToken = window.prompt('Paste your GitHub token:');
+      if (!enteredToken) return;
+
+      localStorage.setItem(GITHUB_TOKEN_STORAGE_KEY, enteredToken.trim());
+      songsStatusMessageElement.textContent = 'Checking token...';
+      try {
+        await Promise.all(STATIONS.map(loadStationSongs)); // loading from GitHub also proves the token works
+      } catch (error) {
+        localStorage.removeItem(GITHUB_TOKEN_STORAGE_KEY);
+        songsStatusMessageElement.textContent = `Could not unlock: ${error.message}`;
+        return;
+      }
+      renderSongToolbar();
+      renderTable();
+    }
+
+    function lockEditing() {
+      localStorage.removeItem(GITHUB_TOKEN_STORAGE_KEY);
+      closeSongEditor();
+      renderSongToolbar();
       renderTable();
     }
 
@@ -779,6 +1077,7 @@
       }, RECENTLY_PLAYED_REFRESH_MS);
 
       markActiveStation(songsSectionElement, activeSongStation);
+      renderSongToolbar();
       try {
         await Promise.all(STATIONS.map(loadStationSongs));
       } catch (error) {
