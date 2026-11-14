@@ -649,25 +649,32 @@
       return `${minutes}:${seconds}`;
     }
 
+    function formatOrdinal(n) {
+      const s = ['th', 'st', 'nd', 'rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    }
+
     function createCell(column, value, song, allSongs) {
       const cell = createElement('td');
       
       if (column.type === 'combo') {
-        if (isMissing(value)) {
+        if (isMissing(value) || isNaN(Number(value))) {
           cell.textContent = EMPTY_CELL_TEXT;
         } else {
-          // Calculate rank and percentile based on note count (combo) across all loaded songs
+          const numericValue = Number(value);
+          
+          // Only include valid, non-missing combos in the ranking pool
           const comboValues = allSongs
             .map(s => Number(s['note count (combo)']))
-            .filter(n => !isNaN(n))
+            .filter(n => !isNaN(n) && n !== null && n !== undefined && String(n).trim() !== '')
             .sort((a, b) => b - a); // Highest combo first
           
-          const numericValue = Number(value);
-          const rank = comboValues.indexOf(numericValue) !== -1 ? comboValues.indexOf(numericValue) + 1 : allSongs.length;
-          const totalSongs = allSongs.length || 1;
+          const rank = comboValues.indexOf(numericValue) !== -1 ? comboValues.indexOf(numericValue) + 1 : comboValues.length + 1;
+          const totalSongs = comboValues.length || 1;
           
-          // Formula provided: percentile = (b + 0.5e) / n
-          // Where b = number of items strictly worse, e = number of items tied, n = total items
+          // Formula: percentile = (b + 0.5e) / n
+          // Where b = number of items strictly worse, e = number of items tied, n = total valid items
           let worseCount = 0;
           let tieCount = 0;
           comboValues.forEach(v => {
@@ -676,7 +683,7 @@
           });
           const percentile = Math.round(((worseCount + 0.5 * tieCount) / totalSongs) * 100);
           
-          cell.textContent = `${numericValue} (#${rank} \u00b7 ${percentile}th percentile)`;
+          cell.textContent = `${numericValue} (${formatOrdinal(rank)} \u00b7 ${percentile}th percentile)`;
         }
       } else if (column.type === 'nps') {
         const duration = Number(song[column.durationKey]);
@@ -956,7 +963,7 @@
       const columns = buildColumns(station);
       const form = createElement('form', undefined, 'song-form');
 
-      // Exclude NPS since it is calculated, but keep Combo and Durations editable
+      // Exclude NPS since it is calculated, but keep Combo, Durations, and BPM editable
       const editableColumns = columns.filter((column) => column.type !== 'nps');
 
       editableColumns.forEach((column) => {
@@ -972,6 +979,9 @@
         } else if (column.type === 'duration') {
           input.min = '1';
           input.max = '600';
+        } else if (column.header === 'bpm') {
+          input.min = '1';
+          input.max = '999';
         } else if (column.type === 'meter') {
           input.min = '0';
           input.max = String(MAX_METER_VALUE);
@@ -1011,6 +1021,13 @@
             alert('Duration must be between 1 and 600 seconds.');
             return;
           }
+        }
+
+        // Validate BPM range (1 to 999)
+        const bpmVal = Number(formData.get('bpm'));
+        if (!isNaN(bpmVal) && bpmVal !== 0 && (bpmVal < 1 || bpmVal > 999)) {
+          alert('BPM must be between 1 and 999.');
+          return;
         }
 
         const enteredValues = Object.fromEntries(
