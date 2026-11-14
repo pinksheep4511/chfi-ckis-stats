@@ -679,13 +679,11 @@
       radioAudioElement.load(); // closes the connection
     }
 
-    // Safari and iPhone play HLS natively; other browsers use hls.js.
+    // hls.js first: it handles audio-only HLS in every browser with Media Source support.
+    // Native HLS is the fallback (iPhones without Media Source support), because some browsers
+    // claim native support but fail on audio-only streams.
     function attachRadioStream(station) {
       releaseRadioStream();
-      if (radioAudioElement.canPlayType(HLS_MIME_TYPE)) {
-        radioAudioElement.src = station.streamUrl;
-        return true;
-      }
       if (window.Hls && Hls.isSupported()) {
         radioHls = new Hls();
         radioHls.on(Hls.Events.ERROR, (event, data) => {
@@ -693,6 +691,10 @@
         });
         radioHls.loadSource(station.streamUrl);
         radioHls.attachMedia(radioAudioElement);
+        return true;
+      }
+      if (radioAudioElement.canPlayType(HLS_MIME_TYPE)) {
+        radioAudioElement.src = station.streamUrl;
         return true;
       }
       return false;
