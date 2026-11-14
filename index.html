@@ -687,7 +687,7 @@
           });
           const percentile = Math.round(((worseCount + 0.5 * tieCount) / totalSongs) * 100);
           
-          cell.textContent = `${numericValue} (#${rank} \u00b7 ${formatOrdinal(percentile)}th percentile)`;
+          cell.textContent = `${numericValue} (#${rank} \u00b7 ${formatOrdinal(percentile)} percentile)`;
         }
       } else if (column.type === 'nps') {
         const duration = Number(song[column.durationKey]);
