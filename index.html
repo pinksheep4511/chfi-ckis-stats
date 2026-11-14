@@ -705,8 +705,25 @@
     }
 
     function compareSongs(songA, songB) {
-      const valueA = songA[sortHeader];
-      const valueB = songB[sortHeader];
+      let valueA, valueB;
+
+      // Handle custom calculated NPS sorting
+      if (sortHeader.endsWith('nps')) {
+        const durationKey = sortHeader.startsWith('base') ? 'base duration' : `${activeSongStation.callSign.toLowerCase()} duration`;
+        const comboKey = 'note count (combo)';
+        
+        const durA = Number(songA[durationKey]);
+        const comboA = Number(songA[comboKey]);
+        valueA = (!isMissing(comboA) && !isMissing(durA) && durA > 0) ? comboA / durA : 0;
+
+        const durB = Number(songB[durationKey]);
+        const comboB = Number(songB[comboKey]);
+        valueB = (!isMissing(comboB) && !isMissing(durB) && durB > 0) ? comboB / durB : 0;
+      } else {
+        valueA = songA[sortHeader];
+        valueB = songB[sortHeader];
+      }
+
       if (isMissing(valueA) && isMissing(valueB)) return 0;
       if (isMissing(valueA)) return 1;  // missing values always last
       if (isMissing(valueB)) return -1;
@@ -936,7 +953,7 @@
     // One form for both adding (originalSong is null) and editing.
     function openSongEditor(originalSong) {
       const station = activeSongStation;
-      const columns = buildColumns(station);
+      const columns = buildColumns(station).filter(column => column.type !== 'nps');
       const form = createElement('form', undefined, 'song-form');
 
       columns.forEach((column) => {
