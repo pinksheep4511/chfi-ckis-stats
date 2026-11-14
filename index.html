@@ -38,7 +38,13 @@
     }
     h1 { margin: 0 0 24px; font-size: 1.5rem; }
     h2 { margin: 0 0 12px; font-size: 1.25rem; }
-    .station-section { margin-bottom: 40px; }
+    .station-section {
+      margin-bottom: 24px;
+      padding: 20px;
+      border: 2px solid var(--accent);
+      border-radius: 16px;
+    }
+    .station-section h2 { color: var(--accent); }
     .station-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
     .station-tab {
       padding: 8px 20px;
@@ -88,6 +94,29 @@
     .track-time { color: var(--accent); }
     .track-length { margin-top: 4px; color: var(--text-muted); font-size: 0.85rem; }
 
+    /* Station summary stats */
+    .station-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .station-stats:empty { display: none; }
+    .stat-card {
+      padding: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .stat-label { color: var(--text-muted); font-size: 0.85rem; }
+    .stat-value {
+      margin-top: 4px;
+      color: var(--accent);
+      font-size: 1.25rem;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
     /* Song lists */
     .table-wrapper { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; min-width: 800px; }
@@ -105,6 +134,7 @@
   <section class="station-section" id="recent-section">
     <h2>Recently played</h2>
     <div class="station-tabs" id="recent-station-tabs"></div>
+    <div class="station-stats" id="recent-stats"></div>
     <div class="status-message" id="recent-status-message"></div>
     <div id="recent-days"></div>
   </section>
@@ -168,6 +198,7 @@
     const recentTabsElement = document.getElementById('recent-station-tabs');
     const recentStatusMessageElement = document.getElementById('recent-status-message');
     const recentDaysElement = document.getElementById('recent-days');
+    const recentStatsElement = document.getElementById('recent-stats');
 
     const dateLabelFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }); // gives yyyy-MM-dd
 
@@ -248,9 +279,60 @@
       return dayGroup;
     }
 
+    function formatTotalDuration(totalSeconds) {
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      return `${hours}h ${minutes}m`;
+    }
+
+    function buildSongKey(track) {
+      return `${track.artist} - ${track.title}`.trim().toLowerCase();
+    }
+
+    // To add a stat, add one { label, value } object to the array this returns.
+    function calculateStationStats(tracks) {
+      const playCountBySongKey = new Map();
+      let totalSeconds = 0;
+
+      tracks.forEach((track) => {
+        totalSeconds += Number(track.length_seconds) || 0;
+        const songKey = buildSongKey(track);
+        const songEntry = playCountBySongKey.get(songKey) || { track, playCount: 0 };
+        songEntry.playCount += 1;
+        playCountBySongKey.set(songKey, songEntry);
+      });
+
+      const mostPlayed = [...playCountBySongKey.values()].reduce(
+        (best, songEntry) => (!best || songEntry.playCount > best.playCount ? songEntry : best),
+        null
+      );
+
+      return [
+        { label: 'Plays (7 days)', value: tracks.length },
+        { label: 'Unique songs', value: playCountBySongKey.size },
+        { label: 'Airtime', value: formatTotalDuration(totalSeconds) },
+        { label: 'Most played', value: `${mostPlayed.track.title} (${mostPlayed.playCount}x)` },
+      ];
+    }
+
+    function renderStationStats(tracks) {
+      recentStatsElement.replaceChildren();
+      if (!tracks || tracks.length === 0) return;
+
+      calculateStationStats(tracks).forEach((stat) => {
+        const statCard = createElement('div', undefined, 'stat-card');
+        statCard.append(
+          createElement('div', stat.label, 'stat-label'),
+          createElement('div', stat.value, 'stat-value')
+        );
+        recentStatsElement.appendChild(statCard);
+      });
+    }
+
     function renderRecentlyPlayed() {
       const tracks = recentTracksByCallSign[activeRecentStation.callSign];
       recentDaysElement.replaceChildren();
+      renderStationStats(tracks);
       if (!tracks) return;
 
       const tracksByDate = groupTracksByDate(tracks);
