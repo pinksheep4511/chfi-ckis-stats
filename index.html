@@ -514,8 +514,11 @@
       }
 
       return [
-        { label: 'Plays (7 days)', value: tracks.length },
-        { label: 'Unique songs', value: playCountBySongKey.size },
+        {
+          label: 'Plays (7 days)',
+          value: tracks.length,
+          detail: `${playCountBySongKey.size} unique songs`
+        },
         { label: 'Total airtime', value: formatTotalDuration(totalSeconds) },
         ...lengthStats,
         {
