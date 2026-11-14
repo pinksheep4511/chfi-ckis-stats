@@ -353,7 +353,8 @@
           Number(track.length_seconds) > Number(longest.length_seconds) ? track : longest
         );
         const averageSeconds = Math.round(totalSeconds / tracksWithLength.length);
-        const medianSeconds = getMedian(tracksWithLength)
+        const validLengths = tracksWithLength.map((track) => Number(track.length_seconds));
+        const medianSeconds = Math.round(getMedian(validLengths));
         lengthStats.push(
           {
             label: 'Average length',
