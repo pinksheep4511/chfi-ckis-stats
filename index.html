@@ -1,1 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radio Stats</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <style>
+    :root {
+      --background: #000;
+      --text: #f2f2f2;
+      --text-muted: #8a8a8a;
+      --border: #222;
+      --chfi-accent: #00e5ff;
+      --ckis-accent: #ff2e93;
+      --accent: var(--chfi-accent); /* changed by the script when you switch station */
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: var(--background);
+      color: var(--text);
+      font-family: system-ui, sans-serif;
+    }
+    h1 { margin: 0 0 16px; font-size: 1.5rem; }
+    .station-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .station-tab {
+      padding: 8px 20px;
+      background: transparent;
+      color: var(--text-muted);
+      border: 2px solid var(--border);
+      border-radius: 999px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    .station-tab.active {
+      color: var(--background);
+      background: var(--accent);
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+    .status-message { color: var(--text-muted); padding: 16px 0; }
+    .table-wrapper { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; min-width: 800px; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th {
+      color: var(--accent);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    th:hover { text-decoration: underline; }
+    .meter-value { display: block; font-variant-numeric: tabular-nums; }
+    .meter-track { height: 4px; margin-top: 4px; background: var(--border); border-radius: 2px; }
+    .meter-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <h1>Radio Stats</h1>
+  <div class="station-tabs" id="station-tabs"></div>
+  <div class="status-message" id="status-message"></div>
+  <div class="table-wrapper"><table id="songs-table"></table></div>
 
+  <script>
+    const STATIONS = [
+      { callSign: 'CHFI', csvPath: 'data/chfi-songs.csv', accentVariable: '--chfi-accent' },
+      { callSign: 'CKIS', csvPath: 'data/ckis-songs.csv', accentVariable: '--ckis-accent' },
+    ];
+    const MAX_METER_VALUE = 100;
+    const EMPTY_CELL_TEXT = '\u2014';
+
+    // Column types: 'text', 'number', 'duration' (seconds shown as m:ss), 'meter' (0-100 with a bar).
+    // The station duration header is built from the call sign, e.g. "chfi duration" or "ckis duration".
+    function buildColumns(station) {
+      return [
+        { header: 'name', label: 'Title', type: 'text' },
+        { header: 'artist', label: 'Artist', type: 'text' },
+        { header: 'note count (combo)', label: 'Combo', type: 'number' },
+        { header: 'base duration', label: 'Base length', type: 'duration' },
+        { header: `${station.callSign.toLowerCase()} duration`, label: `${station.callSign} length`, type: 'duration' },
+        { header: 'bpm', label: 'BPM', type: 'number' },
+        { header: 'energy', label: 'Energy', type: 'meter' },
+        { header: 'danceability', label: 'Danceability', type: 'meter' },
+        { header: 'happiness', label: 'Happiness', type: 'meter' },
+      ];
+    }
+
+    const songsByCallSign = {};
+    let activeStation = STATIONS[0];
+    let sortHeader = null;
+    let sortDirection = 1; // 1 = ascending, -1 = descending
+
+    const stationTabsElement = document.getElementById('station-tabs');
+    const statusMessageElement = document.getElementById('status-message');
+    const songsTableElement = document.getElementById('songs-table');
+
+    function isMissing(value) {
+      return value === null || value === undefined || value === '';
+    }
+
+    function formatDuration(totalSeconds) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = String(Math.round(totalSeconds % 60)).padStart(2, '0');
+      return `${minutes}:${seconds}`;
+    }
+
+    function createElement(tagName, text, className) {
+      const element = document.createElement(tagName);
+      if (text !== undefined) element.textContent = text;
+      if (className) element.className = className;
+      return element;
+    }
+
+    function createCell(column, value) {
+      const cell = createElement('td');
+      if (isMissing(value)) {
+        cell.textContent = EMPTY_CELL_TEXT;
+      } else if (column.type === 'duration') {
+        cell.textContent = formatDuration(value);
+      } else if (column.type === 'meter') {
+        const percent = Math.min(100, (value / MAX_METER_VALUE) * 100);
+        const fill = createElement('div', undefined, 'meter-fill');
+        fill.style.width = `${percent}%`;
+        const track = createElement('div', undefined, 'meter-track');
+        track.appendChild(fill);
+        cell.append(createElement('span', value, 'meter-value'), track);
+      } else {
+        cell.textContent = value;
+      }
+      return cell;
+    }
+
+    function compareSongs(songA, songB) {
+      const valueA = songA[sortHeader];
+      const valueB = songB[sortHeader];
+      if (isMissing(valueA) && isMissing(valueB)) return 0;
+      if (isMissing(valueA)) return 1;  // missing values always last
+      if (isMissing(valueB)) return -1;
+      if (typeof valueA === 'number' && typeof valueB === 'number') {
+        return (valueA - valueB) * sortDirection;
+      }
+      return String(valueA).localeCompare(String(valueB)) * sortDirection;
+    }
+
+    function handleHeaderClick(header) {
+      sortDirection = sortHeader === header ? -sortDirection : 1;
+      sortHeader = header;
+      renderTable();
+    }
+
+    function renderTable() {
+      const columns = buildColumns(activeStation);
+      const songs = [...(songsByCallSign[activeStation.callSign] || [])];
+      if (sortHeader) songs.sort(compareSongs);
+
+      songsTableElement.replaceChildren();
+
+      const headerRow = createElement('tr');
+      columns.forEach((column) => {
+        const headerCell = createElement('th', column.label);
+        headerCell.addEventListener('click', () => handleHeaderClick(column.header));
+        headerRow.appendChild(headerCell);
+      });
+      songsTableElement.appendChild(createElement('thead')).appendChild(headerRow);
+
+      const body = songsTableElement.appendChild(createElement('tbody'));
+      songs.forEach((song) => {
+        const row = createElement('tr');
+        columns.forEach((column) => row.appendChild(createCell(column, song[column.header])));
+        body.appendChild(row);
+      });
+
+      statusMessageElement.textContent = songs.length === 0 ? 'No songs yet. Add rows to the CSV file.' : '';
+    }
+
+    async function loadStationSongs(station) {
+      const response = await fetch(station.csvPath);
+      if (!response.ok) throw new Error(`${station.csvPath} returned HTTP ${response.status}`);
+      const parsed = Papa.parse(await response.text(), {
+        header: true,
+        skipEmptyLines: true,
+        dynamicTyping: true,
+        transformHeader: (header) => header.trim(),
+      });
+      songsByCallSign[station.callSign] = parsed.data;
+    }
+
+    function selectStation(station) {
+      activeStation = station;
+      sortHeader = null;
+      document.documentElement.style.setProperty('--accent', `var(${station.accentVariable})`);
+      document.querySelectorAll('.station-tab').forEach((tab) => {
+        tab.classList.toggle('active', tab.dataset.callSign === station.callSign);
+      });
+      renderTable();
+    }
+
+    function createStationTabs() {
+      STATIONS.forEach((station) => {
+        const tab = createElement('button', station.callSign, 'station-tab');
+        tab.dataset.callSign = station.callSign;
+        tab.addEventListener('click', () => selectStation(station));
+        stationTabsElement.appendChild(tab);
+      });
+    }
+
+    async function start() {
+      createStationTabs();
+      try {
+        await Promise.all(STATIONS.map(loadStationSongs));
+      } catch (error) {
+        statusMessageElement.textContent = `Could not load song data: ${error.message}`;
+        return;
+      }
+      selectStation(activeStation);
+    }
+
+    start();
+  </script>
+</body>
+</html>
