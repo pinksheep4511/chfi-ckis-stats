@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Radio Stats</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
     @font-face {
@@ -124,6 +125,23 @@
       overflow-wrap: anywhere;
     }
 
+    .section-toggle {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      padding: 0;
+      background: none;
+      border: none;
+      color: var(--accent);
+      font-family: inherit;
+      font-size: 1.25rem;
+      font-weight: 700;
+      text-align: left;
+      cursor: pointer;
+    }
+    #songs-content { margin-top: 12px; }
+
     /* Song lists */
     .table-wrapper { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; min-width: 800px; }
@@ -161,6 +179,17 @@
 </head>
 <body>
   <h1>Radio Stats</h1>
+  <section class="station-section" id="radio-section">
+    <h2>Live radio</h2>
+    <div class="station-tabs" id="radio-station-tabs"></div>
+    <div class="radio-controls">
+      <button class="radio-button" id="radio-play-button">Play</button>
+      <input class="radio-volume" id="radio-volume" type="range" min="0" max="100" value="70" aria-label="Volume">
+    </div>
+    <div class="status-message" id="radio-status-message"></div>
+    <div class="stat-label">Now playing</div>
+    <div id="radio-now-playing"></div>
+  </section>
 
   <section class="station-section" id="recent-section">
     <h2>Recently played</h2>
@@ -171,16 +200,31 @@
   </section>
 
   <section class="station-section" id="songs-section">
-    <h2>Song lists</h2>
-    <div class="station-tabs" id="songs-station-tabs"></div>
-    <div class="status-message" id="songs-status-message"></div>
-    <div class="table-wrapper"><table id="songs-table"></table></div>
+    <button class="section-toggle" id="songs-toggle" aria-expanded="false" aria-controls="songs-content">
+      <span>Song lists</span>
+      <span class="section-toggle-icon" aria-hidden="true">+</span>
+    </button>
+    <div id="songs-content" hidden>
+      <div class="station-tabs" id="songs-station-tabs"></div>
+      <div class="status-message" id="songs-status-message"></div>
+      <div class="table-wrapper"><table id="songs-table"></table></div>
+    </div>
   </section>
 
   <script>
     const STATIONS = [
-      { callSign: 'CHFI', csvPath: 'data/chfi-songs.csv', accentVariable: '--chfi-accent' },
-      { callSign: 'CKIS', csvPath: 'data/ckis-songs.csv', accentVariable: '--ckis-accent' },
+      {
+        callSign: 'CHFI',
+        csvPath: 'data/chfi-songs.csv',
+        accentVariable: '--chfi-accent',
+        streamUrl: 'https://rogers-hls.leanstream.co/rogers/tor981.stream/48k/playlist.m3u8',
+      },
+      {
+        callSign: 'CKIS',
+        csvPath: 'data/ckis-songs.csv',
+        accentVariable: '--ckis-accent',
+        streamUrl: 'https://rogers-hls.leanstream.co/rogers/tor925.stream/48k/playlist.m3u8',
+      },
     ];
     const MAX_METER_VALUE = 100;
     const EMPTY_CELL_TEXT = '\u2014';
@@ -433,8 +477,11 @@
       recentStatusMessageElement.textContent = tracks.length === 0 ? 'No plays recorded yet.' : '';
     }
 
-    async function fetchRecentTracks(station) {
-      const response = await fetch(`${RECENTLY_PLAYED_API_URL}?station=${station.callSign}`);
+    async function fetchRecentTracks(station, queryParameters = {}) {
+      const requestUrl = new URL(RECENTLY_PLAYED_API_URL);
+      requestUrl.searchParams.set('station', station.callSign);
+      Object.entries(queryParameters).forEach(([name, value]) => requestUrl.searchParams.set(name, value));
+      const response = await fetch(requestUrl);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json();
       if (payload.error) throw new Error(payload.error);
@@ -461,12 +508,38 @@
       refreshRecentlyPlayed(station);
     }
 
+    /* Live radio */
+    .radio-controls { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+    .radio-button {
+      min-width: 96px;
+      padding: 8px 24px;
+      background: var(--accent);
+      color: var(--background);
+      border: 2px solid var(--accent);
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .radio-volume { flex: 1; min-width: 0; accent-color: var(--accent); }
+    #radio-now-playing { margin-top: 8px; }
+
     // ---------- Song lists ----------
 
     const songsSectionElement = document.getElementById('songs-section');
     const songsTabsElement = document.getElementById('songs-station-tabs');
     const songsStatusMessageElement = document.getElementById('songs-status-message');
     const songsTableElement = document.getElementById('songs-table');
+    const songsToggleElement = document.getElementById('songs-toggle');
+    const songsContentElement = document.getElementById('songs-content');
+
+    function toggleSongsSection() {
+      const willOpen = songsContentElement.hidden;
+      songsContentElement.hidden = !willOpen;
+      songsToggleElement.setAttribute('aria-expanded', String(willOpen));
+      songsToggleElement.querySelector('.section-toggle-icon').textContent = willOpen ? '-' : '+';
+    }
 
     // Column types: 'text', 'number', 'duration' (seconds shown as m:ss), 'meter' (0-100 with a bar).
     // The station duration header is built from the call sign, e.g. "chfi duration" or "ckis duration".
@@ -576,15 +649,131 @@
       renderTable();
     }
 
+    // ---------- Live radio ----------
+
+    const HLS_MIME_TYPE = 'application/vnd.apple.mpegurl';
+
+    const radioSectionElement = document.getElementById('radio-section');
+    const radioTabsElement = document.getElementById('radio-station-tabs');
+    const radioPlayButtonElement = document.getElementById('radio-play-button');
+    const radioVolumeElement = document.getElementById('radio-volume');
+    const radioStatusMessageElement = document.getElementById('radio-status-message');
+    const radioNowPlayingElement = document.getElementById('radio-now-playing');
+
+    const radioAudioElement = new Audio();
+    let activeRadioStation = STATIONS[0];
+    let radioHls = null;
+    let isRadioPlaying = false;
+
+    function setRadioPlaying(isPlaying) {
+      isRadioPlaying = isPlaying;
+      radioPlayButtonElement.textContent = isPlaying ? 'Stop' : 'Play';
+    }
+
+    function releaseRadioStream() {
+      if (radioHls) {
+        radioHls.destroy();
+        radioHls = null;
+      }
+      radioAudioElement.removeAttribute('src');
+      radioAudioElement.load(); // closes the connection
+    }
+
+    // Safari and iPhone play HLS natively; other browsers use hls.js.
+    function attachRadioStream(station) {
+      releaseRadioStream();
+      if (radioAudioElement.canPlayType(HLS_MIME_TYPE)) {
+        radioAudioElement.src = station.streamUrl;
+        return true;
+      }
+      if (window.Hls && Hls.isSupported()) {
+        radioHls = new Hls();
+        radioHls.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) handleRadioFailure(`Stream error: ${data.details}`);
+        });
+        radioHls.loadSource(station.streamUrl);
+        radioHls.attachMedia(radioAudioElement);
+        return true;
+      }
+      return false;
+    }
+
+    function handleRadioFailure(message) {
+      stopRadio();
+      radioStatusMessageElement.textContent = message;
+    }
+
+    async function startRadio() {
+      radioStatusMessageElement.textContent = 'Connecting...';
+      if (!attachRadioStream(activeRadioStation)) {
+        radioStatusMessageElement.textContent = 'This browser cannot play HLS streams.';
+        return;
+      }
+      setRadioPlaying(true);
+      try {
+        await radioAudioElement.play();
+        radioStatusMessageElement.textContent = '';
+      } catch (error) {
+        if (error.name === 'AbortError') return; // a newer start or stop replaced this request
+        handleRadioFailure(`Could not start playback: ${error.message}`);
+      }
+    }
+
+    function stopRadio() {
+      radioAudioElement.pause();
+      releaseRadioStream(); // so the next Play joins the live broadcast instead of resuming old audio
+      setRadioPlaying(false);
+    }
+
+    function handleRadioPlayButtonClick() {
+      if (isRadioPlaying) stopRadio();
+      else startRadio();
+    }
+
+    function handleRadioVolumeInput() {
+      radioAudioElement.volume = Number(radioVolumeElement.value) / 100;
+    }
+
+    async function refreshNowPlaying() {
+      const station = activeRadioStation;
+      try {
+        const [latestTrack] = await fetchRecentTracks(station, { days: 2, limit: 1 });
+        if (station !== activeRadioStation) return; // ignore results for a station you've switched away from
+        radioNowPlayingElement.replaceChildren();
+        if (latestTrack) radioNowPlayingElement.appendChild(createTrackCard(latestTrack));
+        else radioNowPlayingElement.textContent = 'No track info yet.';
+      } catch (error) {
+        if (station !== activeRadioStation) return;
+        radioNowPlayingElement.textContent = `Could not load now playing: ${error.message}`;
+      }
+    }
+
+    function selectRadioStation(station) {
+      activeRadioStation = station;
+      markActiveStation(radioSectionElement, station);
+      radioNowPlayingElement.replaceChildren();
+      refreshNowPlaying();
+      if (isRadioPlaying) startRadio(); // switches the stream without pressing Play again
+    }
+
     // ---------- Start ----------
 
     async function start() {
+      createStationToggle(radioTabsElement, selectRadioStation);
+      radioPlayButtonElement.addEventListener('click', handleRadioPlayButtonClick);
+      radioVolumeElement.addEventListener('input', handleRadioVolumeInput);
+      handleRadioVolumeInput(); // applies the slider's starting position
+      selectRadioStation(activeRadioStation);
+
       createStationToggle(recentTabsElement, selectRecentStation);
       createStationToggle(songsTabsElement, selectSongStation);
+      songsToggleElement.addEventListener('click', toggleSongsSection);
 
       selectRecentStation(activeRecentStation);
       setInterval(() => {
-        if (!document.hidden) refreshRecentlyPlayed(activeRecentStation); // skip while the tab is in the background
+        if (document.hidden) return; // skip while the tab is in the background
+        refreshRecentlyPlayed(activeRecentStation);
+        refreshNowPlaying();
       }, RECENTLY_PLAYED_REFRESH_MS);
 
       markActiveStation(songsSectionElement, activeSongStation);
