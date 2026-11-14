@@ -619,15 +619,18 @@
       songsToggleElement.querySelector('.section-toggle-icon').textContent = willOpen ? '-' : '+';
     }
 
-    // Column types: 'text', 'number', 'duration' (seconds shown as m:ss), 'meter' (0-100 with a bar).
-    // The station duration header is built from the call sign, e.g. "chfi duration" or "ckis duration".
+    // Column types: 'text', 'number', 'duration' (seconds shown as m:ss), 'meter' (0-100 with a bar), 'combo', 'nps'.
+    // The station duration/NPS header is built from the call sign, e.g. "chfi duration" or "ckis duration".
     function buildColumns(station) {
+      const stationCallSignLower = station.callSign.toLowerCase();
       return [
         { header: 'name', label: 'Title', type: 'text' },
         { header: 'artist', label: 'Artist', type: 'text' },
-        { header: 'note count (combo)', label: 'Combo', type: 'number' },
+        { header: 'note count (combo)', label: 'Combo', type: 'combo' },
         { header: 'base duration', label: 'Base length', type: 'duration' },
-        { header: `${station.callSign.toLowerCase()} duration`, label: `${station.callSign} length`, type: 'duration' },
+        { header: 'base nps', label: 'Base NPS', type: 'nps', durationKey: 'base duration', comboKey: 'note count (combo)' },
+        { header: `${stationCallSignLower} duration`, label: `${station.callSign} length`, type: 'duration' },
+        { header: `${stationCallSignLower} nps`, label: `${station.callSign} NPS`, type: 'nps', durationKey: `${stationCallSignLower} duration`, comboKey: 'note count (combo)' },
         { header: 'bpm', label: 'BPM', type: 'number' },
         { header: 'energy', label: 'Energy', type: 'meter' },
         { header: 'danceability', label: 'Danceability', type: 'meter' },
@@ -646,9 +649,45 @@
       return `${minutes}:${seconds}`;
     }
 
-    function createCell(column, value) {
+    function createCell(column, value, song, allSongs) {
       const cell = createElement('td');
-      if (isMissing(value)) {
+      
+      if (column.type === 'combo') {
+        if (isMissing(value)) {
+          cell.textContent = EMPTY_CELL_TEXT;
+        } else {
+          // Calculate rank and percentile based on note count (combo) across all loaded songs
+          const comboValues = allSongs
+            .map(s => Number(s['note count (combo)']))
+            .filter(n => !isNaN(n))
+            .sort((a, b) => b - a); // Highest combo first
+          
+          const numericValue = Number(value);
+          const rank = comboValues.indexOf(numericValue) !== -1 ? comboValues.indexOf(numericValue) + 1 : allSongs.length;
+          const totalSongs = allSongs.length || 1;
+          
+          // Formula provided: percentile = (b + 0.5e) / n
+          // Where b = number of items strictly worse, e = number of items tied, n = total items
+          let worseCount = 0;
+          let tieCount = 0;
+          comboValues.forEach(v => {
+            if (v < numericValue) worseCount++;
+            else if (v === numericValue) tieCount++;
+          });
+          const percentile = Math.round(((worseCount + 0.5 * tieCount) / totalSongs) * 100);
+          
+          cell.textContent = `${numericValue} (#${rank} \u00b7 ${percentile}th percentile)`;
+        }
+      } else if (column.type === 'nps') {
+        const duration = Number(song[column.durationKey]);
+        const combo = Number(song[column.comboKey]);
+        if (isMissing(combo) || isMissing(duration) || duration <= 0) {
+          cell.textContent = '0.00';
+        } else {
+          const nps = (combo / duration).toFixed(2);
+          cell.textContent = nps;
+        }
+      } else if (isMissing(value)) {
         cell.textContent = EMPTY_CELL_TEXT;
       } else if (column.type === 'duration') {
         cell.textContent = formatDuration(value);
