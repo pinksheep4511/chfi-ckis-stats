@@ -457,10 +457,29 @@
         playCountBySongKey.set(songKey, songEntry);
       });
 
-      const mostPlayed = [...playCountBySongKey.values()].reduce(
-        (best, songEntry) => (!best || songEntry.playCount > best.playCount ? songEntry : best),
-        null
+      // Find the highest play count among all songs
+      let maxPlayCount = 0;
+      playCountBySongKey.forEach((entry) => {
+        if (entry.playCount > maxPlayCount) {
+          maxPlayCount = entry.playCount;
+        }
+      });
+
+      // Collect all songs that share this highest play count
+      const mostPlayedSongs = [...playCountBySongKey.values()].filter(
+        (entry) => entry.playCount === maxPlayCount
       );
+
+      // Format the detail string for the most played stat card
+      let mostPlayedDetail = '';
+      if (mostPlayedSongs.length > 0) {
+        const firstSongText = buildTrackNameText(mostPlayedSongs[0].track);
+        if (mostPlayedSongs.length === 1) {
+          mostPlayedDetail = firstSongText;
+        } else {
+          mostPlayedDetail = `${firstSongText} (+${mostPlayedSongs.length - 1} more)`;
+        }
+      }
 
       // Tracks with a missing or zero length are ignored for the length stats.
       const tracksWithLength = tracks.filter((track) => Number(track.length_seconds) > 0);
@@ -501,8 +520,8 @@
         ...lengthStats,
         {
           label: 'Most played',
-          value: `${mostPlayed.playCount}x`,
-          detail: buildTrackNameText(mostPlayed.track),
+          value: maxPlayCount > 0 ? `${maxPlayCount}x` : '0x',
+          detail: mostPlayedDetail,
         },
       ];
     }
