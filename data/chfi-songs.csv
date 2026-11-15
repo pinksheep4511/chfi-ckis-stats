@@ -1,11 +1,11 @@
 name,artist,note count (combo),base duration,chfi duration,bpm,energy,danceability,happiness
-"Hold On, We're Going Home (feat. Majid Jordan)",Drake,1586,227,175,0,0,0,0
-Reminding Me (feat. Vanessa Hudgens),Shawn Hook,1551,209,206,0,0,0,0
-Dancing In The Flames,The Weeknd,2008,201,195,0,0,0,0
-I Got You,Devon Cole,1293,168,165,0,0,0,0
-Stereo Love,Edward Maya & Vika Jigulina,2287,247,243,0,0,0,0
+"Hold On, We're Going Home (feat. Majid Jordan)",Drake,1586,227,175,100,41,78,29
+Reminding Me (feat. Vanessa Hudgens),Shawn Hook,1551,209,206,133,56,57,25
+Dancing In The Flames,The Weeknd,2008,201,195,117,73,55,16
+I Got You,Devon Cole,1293,168,165,93,53,80,67
+Stereo Love,Edward Maya & Vika Jigulina,2287,247,243,127,79,78,34
 Ghost,Fefe Dobson,2427,226,225,132,91,60,66
-Flowers Need Rain,Preston Pablo,1203,166,164,0,0,0,0
+Flowers Need Rain,Preston Pablo,1203,166,164,120,54,66,22
 Faded,soulDecision,1874,209,170,0,0,0,0
 Waves of Blue,Majid Jordan,1371,208,201,0,0,0,0
 Something Big,Shawn Mendes,1397,161,156,0,0,0,0
@@ -59,9 +59,9 @@ Calm Down,Rema & Selena Gomez,1578,239,233,0,0,0,0
 I Just Might,Bruno Mars,2104,212,209,0,0,0,0
 Larger Than Life,Backstreet Boys,2190,232,225,0,0,0,0
 Roar,Katy Perry,1746,223,219,0,0,0,0
-I Want You Back,*NSYNC,1410,200,197,0,0,0,0
+I Want You Back,*NSYNC,1410,200,197,112,94,75,91
 Sound of Your Heart,Shawn Hook,1713,200,185,0,0,0,0
-Just Like a Pill,P!nk,1783,237,229,0,0,0,0
+Just Like a Pill,P!nk,1783,237,229,102,77,69,25
 Everybody Wants to Be Like You,Snow,1851,189,184,0,0,0,0
 Opalite,Taylor Swift,1866,235,230,0,0,0,0
 Quit Playing Games (With My Heart),Backstreet Boys,1528,232,229,0,0,0,0
@@ -197,3 +197,7 @@ What Do You Mean?,Justin Bieber,1609,206,200,125,57,85,79
 Girl On Fire (feat. Nicki Minaj) [Inferno Version],Alicia Keys,1549,225,219,93,71,48,14
 Love Don't Cost a Thing,Jennifer Lopez,2613,222,219,98,84,79,69
 Bad Romance,Lady Gaga,2231,240,225,119,92,70,71
+Family Affair,Mary J. Blige,1984,244,232,93,55,91,97
+Titanium (feat. Sia),David Guetta,1728,210,207,126,79,60,30
+What Makes You Beautiful,One Direction,1729,200,215,125,79,73,89
+CTRL + ALT + DEL,Rêve,1429,153,151,120,76,78,87
