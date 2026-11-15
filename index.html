@@ -1346,6 +1346,10 @@
     }
 
     // ---------- Start ----------
+    function refreshLiveData() {
+      refreshRecentlyPlayed(activeRecentStation);
+      refreshNowPlaying();
+    }
 
     async function start() {
       createStationToggle(radioTabsElement, selectRadioStation);
@@ -1361,10 +1365,12 @@
 
       selectRecentStation(activeRecentStation);
       setInterval(() => {
-        if (document.hidden) return; // skip while the tab is in the background
-        refreshRecentlyPlayed(activeRecentStation);
-        refreshNowPlaying();
+        if (!document.hidden) refreshLiveData(); // skip while the tab is in the background
       }, RECENTLY_PLAYED_REFRESH_MS);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) refreshLiveData(); // refresh immediately when you come back to the tab
+      });
+      window.addEventListener('online', refreshLiveData);
 
       markActiveStation(songsSectionElement, activeSongStation);
       renderSongToolbar();
