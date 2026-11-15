@@ -27,6 +27,7 @@
       --border: #222;
       --chfi-accent: #00e5ff;
       --ckis-accent: #ff2e93;
+      --editing-color: #ffaa00;
       --accent: var(--chfi-accent); /* each .station-section overrides this with its selected station */
     }
     * { box-sizing: border-box; }
@@ -225,6 +226,10 @@
       font-size: 1rem;
     }
     .song-form-buttons { display: flex; gap: 8px; grid-column: 1 / -1; }
+    .song-form-title { grid-column: 1 / -1; margin: 0; font-size: 1.1rem; color: var(--accent); }
+    .song-form.editing { border-color: var(--editing-color); background: #3f2a00; }
+    .song-form.editing .song-form-title { color: var(--editing-color); }
+    tr.editing-row td { background: #3f2a00; border-bottom-color: var(--editing-color); }
 
     /* Phones in portrait: use as much width as possible */
     @media (max-width: 600px) {
@@ -789,7 +794,8 @@
 
       const body = songsTableElement.appendChild(createElement('tbody'));
       songs.forEach((song) => {
-        const row = createElement('tr');
+        const isBeingEdited = editedSongIdentity !== null && buildSongIdentity(song) === editedSongIdentity;
+        const row = createElement('tr', undefined, isBeingEdited ? 'editing-row' : '');
         columns.forEach((column) => row.appendChild(createCell(column, song[column.header], song, songs)));
         if (isEditingUnlocked()) row.appendChild(createRowActionsCell(song));
         body.appendChild(row);
@@ -945,6 +951,7 @@
 
     const songToolbarElement = document.getElementById('song-toolbar');
     const songEditorElement = document.getElementById('song-editor');
+    let editedSongIdentity = null; // identity of the song whose edit form is open, so its table row can be highlighted
 
     function getGitHubToken() {
       return localStorage.getItem(GITHUB_TOKEN_STORAGE_KEY);
@@ -1091,14 +1098,24 @@
     }
 
     function closeSongEditor() {
+      editedSongIdentity = null;
       songEditorElement.replaceChildren();
+    }
+    
+    // Cancel needs its own re-render to clear the highlight. The other callers of closeSongEditor already re-render.
+    function cancelSongEditor() {
+      closeSongEditor();
+      renderTable();
     }
 
     // One form for both adding (originalSong is null) and editing.
     function openSongEditor(originalSong) {
       const station = activeSongStation;
       const columns = buildColumns(station);
-      const form = createElement('form', undefined, 'song-form');
+      const isEditing = Boolean(originalSong);
+      const form = createElement('form', undefined, isEditing ? 'song-form editing' : 'song-form');
+      const formTitle = isEditing ? `Editing: ${originalSong.name} - ${originalSong.artist}` : 'Add a new song';
+      form.appendChild(createElement('h3', formTitle, 'song-form-title'));
 
       // Exclude NPS since it is calculated, but keep Combo, Durations, and BPM editable
       const editableColumns = columns.filter((column) => column.type !== 'nps');
@@ -1133,10 +1150,10 @@
         form.appendChild(field);
       });
 
-      const saveButton = createElement('button', 'Save', 'action-button');
+      const saveButton = createElement('button', isEditing ? 'Save changes' : 'Add song', 'action-button');
       saveButton.type = 'submit';
       const buttonRow = createElement('div', undefined, 'song-form-buttons');
-      buttonRow.append(saveButton, createActionButton('Cancel', closeSongEditor));
+      buttonRow.append(saveButton, createActionButton('Cancel', cancelSongEditor));
       form.appendChild(buttonRow);
 
       form.addEventListener('submit', async (event) => {
@@ -1171,11 +1188,13 @@
           editableColumns.map((column) => [column.header, String(formData.get(column.header)).trim()])
         );
         saveButton.disabled = true; // prevents a double save
-        if (originalSong) await editSong(station, originalSong, enteredValues);
+        if (isEditing) await editSong(station, originalSong, enteredValues);
         else await addSong(station, enteredValues);
         saveButton.disabled = false;
       });
 
+      editedSongIdentity = isEditing ? buildSongIdentity(originalSong) : null; // also clears the highlight when switching to Add
+      renderTable();
       songEditorElement.replaceChildren(form);
       form.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       form.querySelector('input').focus();
