@@ -1368,7 +1368,10 @@
         if (!document.hidden) refreshLiveData(); // skip while the tab is in the background
       }, RECENTLY_PLAYED_REFRESH_MS);
       document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) refreshLiveData(); // refresh immediately when you come back to the tab
+        if (!document.hidden) {
+          console.warn('Refreshing live data after tab has woken up')
+          refreshLiveData(); // refresh immediately when you come back to the tab
+        }
       });
       window.addEventListener('online', refreshLiveData);
 
