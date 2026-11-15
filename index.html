@@ -665,11 +665,12 @@
     let sortHeader = null;
     let sortDirection = 1; // 1 = ascending, -1 = descending
 
-    function formatDuration(totalSeconds) {
-      const roundedSeconds = Math.round(totalSeconds);
+    function formatDuration(totalSeconds, decimalPlaces = 0) {
+      const roundedSeconds = Number(Number(totalSeconds).toFixed(decimalPlaces)); // round first so 59.96s carries into the minutes
       const minutes = Math.floor(roundedSeconds / 60);
-      const seconds = String(roundedSeconds % 60).padStart(2, '0');
-      return `${minutes}:${seconds}`;
+      const secondsText = (roundedSeconds - minutes * 60).toFixed(decimalPlaces);
+      const secondsWidth = decimalPlaces > 0 ? decimalPlaces + 3 : 2; // "05.3" or "05"
+      return `${minutes}:${secondsText.padStart(secondsWidth, '0')}`;
     }
 
     function formatOrdinal(n) {
@@ -814,25 +815,27 @@
     const songsStatsTableElement = document.getElementById('songs-stats-table');
     const songsDurationToggleElement = document.getElementById('songs-duration-toggle');
 
-    // Standard deviation is the population version (the CSV is the whole list, not a sample).
+    // extraDecimalPlaces: avg and st dev show 1 more decimal place than the other stats.
     const SONG_STAT_DEFINITIONS = [
-      { label: 'Avg', calculate: getMean },
-      { label: 'St dev', calculate: getStandardDeviation },
-      { label: 'Min', calculate: (values) => getPercentile(values, 0) },
-      { label: 'Q1', calculate: (values) => getPercentile(values, 0.25) },
-      { label: 'Median', calculate: getMedian },
-      { label: 'Q3', calculate: (values) => getPercentile(values, 0.75) },
-      { label: 'Max', calculate: (values) => getPercentile(values, 1) },
+      { label: 'Avg', calculate: getMean, extraDecimalPlaces: 1 },
+      { label: 'St dev', calculate: getStandardDeviation, extraDecimalPlaces: 1 },
+      { label: 'Min', calculate: (values) => getPercentile(values, 0), extraDecimalPlaces: 0 },
+      { label: 'Q1', calculate: (values) => getPercentile(values, 0.25), extraDecimalPlaces: 0 },
+      { label: 'Median', calculate: getMedian, extraDecimalPlaces: 0 },
+      { label: 'Q3', calculate: (values) => getPercentile(values, 0.75), extraDecimalPlaces: 0 },
+      { label: 'Max', calculate: (values) => getPercentile(values, 1), extraDecimalPlaces: 0 },
     ];
 
     function getMean(values) {
       return values.reduce((sum, value) => sum + value, 0) / values.length;
     }
 
+    // Sample standard deviation (n - 1). Undefined for fewer than 2 values.
     function getStandardDeviation(values) {
+      if (values.length < 2) return undefined;
       const mean = getMean(values);
-      const meanSquaredDeviation = getMean(values.map((value) => (value - mean) ** 2));
-      return Math.sqrt(meanSquaredDeviation);
+      const sumSquaredDeviations = values.reduce((sum, value) => sum + (value - mean) ** 2, 0);
+      return Math.sqrt(sumSquaredDeviations / (values.length - 1));
     }
 
     // Returns undefined when the song lacks usable data, so it is skipped by the stats.
@@ -848,16 +851,18 @@
     function buildSongMetrics(station) {
       const durationHeader = useStationDuration ? getStationDurationHeader(station) : BASE_DURATION_HEADER;
       return [
-        { label: 'Note count', type: 'number', getValue: (song) => song[NOTE_COUNT_HEADER] },
-        { label: 'Duration', type: 'duration', getValue: (song) => song[durationHeader] },
-        { label: 'Notes/sec', type: 'rate', getValue: (song) => getNotesPerSecond(song, durationHeader) },
+        { label: 'Note count', type: 'number', baseDecimalPlaces: 0, getValue: (song) => song[NOTE_COUNT_HEADER] },
+        { label: 'Duration', type: 'duration', baseDecimalPlaces: 0, getValue: (song) => song[durationHeader] },
+        { label: 'Notes/sec', type: 'rate', baseDecimalPlaces: 2, getValue: (song) => getNotesPerSecond(song, durationHeader) },
       ];
     }
 
-    function formatStatValue(metricType, value) {
-      if (metricType === 'duration') return formatDuration(value);
-      const decimalPlaces = metricType === 'rate' ? 2 : 1;
-      return String(Number(value.toFixed(decimalPlaces))); // drops trailing zeros
+    // Returns the dash when there is no value (e.g. st dev with only one song).
+    function formatStatValue(metric, stat, value) {
+      if (!Number.isFinite(value)) return EMPTY_CELL_TEXT;
+      const decimalPlaces = metric.baseDecimalPlaces + stat.extraDecimalPlaces;
+      if (metric.type === 'duration') return formatDuration(value, decimalPlaces);
+      return value.toFixed(decimalPlaces);
     }
 
     function renderSongStats() {
@@ -877,10 +882,8 @@
         const row = createElement('tr');
         row.appendChild(createElement('th', metric.label));
         SONG_STAT_DEFINITIONS.forEach((stat) => {
-          const cellText = values.length === 0
-            ? EMPTY_CELL_TEXT
-            : formatStatValue(metric.type, stat.calculate(values));
-          row.appendChild(createElement('td', cellText));
+          const statValue = values.length === 0 ? undefined : stat.calculate(values);
+          row.appendChild(createElement('td', formatStatValue(metric, stat, statValue)));
         });
         body.appendChild(row);
       });
