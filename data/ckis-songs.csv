@@ -1,12 +1,12 @@
 name,artist,note count (combo),base duration,ckis duration,bpm,energy,danceability,happiness
-"Hold On, We're Going Home (feat. Majid Jordan)",Drake,1586,227,211,0,0,0,0
-Reminding Me (feat. Vanessa Hudgens),Shawn Hook,1551,209,206,0,0,0,0
-Dancing In The Flames,The Weeknd,2008,201,195,0,0,0,0
+"Hold On, We're Going Home (feat. Majid Jordan)",Drake,1586,227,211,100,41,78,29
+Reminding Me (feat. Vanessa Hudgens),Shawn Hook,1551,209,206,133,56,57,25
+Dancing In The Flames,The Weeknd,2008,201,195,117,73,55,16
 Sos,Rihanna,1996,238,238,0,0,0,0
 The Way We Touch,Charlotte Cardin,1578,189,166,0,0,0,0
-I Got You,Devon Cole,1293,168,165,0,0,0,0
-Stereo Love (feat. Vika Jigulina) [Radio Edit],Edward Maya,2287,247,243,0,0,0,0
-Flowers Need Rain,Preston Pablo,1203,166,164,0,0,0,0
+I Got You,Devon Cole,1293,168,165,93,53,80,67
+Stereo Love (feat. Vika Jigulina) [Radio Edit],Edward Maya,2287,247,243,127,79,78,34
+Flowers Need Rain,Preston Pablo,1203,166,164,120,54,66,22
 Blank Space (Taylor's Version),Taylor Swift,1654,231,230,0,0,0,0
 Waves of Blue,Majid Jordan,1371,208,190,0,0,0,0
 homesick,Jamie Fine,1435,150,145,0,0,0,0
@@ -51,7 +51,7 @@ Love You Like a Love Song,Selena Gomez & The Scene,1737,189,183,0,0,0,0
 Dracula (Remix),Tame Impala & JENNIE,1994,209,202,0,0,0,0
 Bad Romance,Lady Gaga,2231,240,229,119,92,70,71
 Monster,Shawn Mendes & Justin Bieber,1177,178,170,0,0,0,0
-Family Affair,Mary J. Blige,1984,244,229,0,0,0,0
+Family Affair,Mary J. Blige,1984,244,229,93,55,91,97
 Espresso,Sabrina Carpenter,1382,175,170,0,0,0,0
 Stargazing,Myles Smith,1374,172,166,0,0,0,0
 Lush Life,Zara Larsson,2056,201,195,0,0,0,0
@@ -80,7 +80,7 @@ DJ Got Us Fallin' In Love (feat. Pitbull),USHER & Pitbull,1898,221,216,0,0,0,0
 Blinding Lights,The Weeknd,1559,200,195,0,0,0,0
 Homewrecker,sombr,1606,209,183,0,0,0,0
 Calm Down,Rema & Selena Gomez,1578,239,233,0,0,0,0
-What Makes You Beautiful,One Direction,1729,200,196,0,0,0,0
+What Makes You Beautiful,One Direction,1729,200,196,125,79,73,89
 Low (feat. T-Pain),Flo Rida,2016,230,225,0,0,0,0
 I Just Might,Bruno Mars,2104,212,209,0,0,0,0
 Pink Pony Club,Chappell Roan,2814,258,244,0,0,0,0
@@ -92,14 +92,14 @@ One Last Time,Ariana Grande,1599,197,193,0,0,0,0
 New Rules,Dua Lipa,1948,209,206,0,0,0,0
 Dance Alone,Preston Pablo,1177,184,181,0,0,0,0
 Shook,Shawn Desman,2122,212,212,0,0,0,0
-Just Like a Pill,P!nk,1783,237,229,0,0,0,0
+Just Like a Pill,P!nk,1783,237,229,102,77,69,25
 Opalite,Taylor Swift,1866,235,230,0,0,0,0
 Quit Playing Games (With My Heart),Backstreet Boys,1528,232,228,0,0,0,0
 Body (feat. Brando),Loud Luxury,1334,163,161,0,0,0,0
 Let Me Love You (feat. Justin Bieber),DJ Snake,1214,205,200,0,0,0,0
 Confetti,Charlotte Cardin,1104,182,181,0,0,0,0
-Toxic,Britney Spears,1624,199,198,0,0,0,0
-CTRL + ALT + DEL,Rêve,1429,153,151,0,0,0,0
+Toxic,Britney Spears,1624,199,198,143,84,77,92
+CTRL + ALT + DEL,Rêve,1429,153,151,120,76,78,87
 Whatcha Say,Jason Derulo,1817,222,210,0,0,0,0
 God's Plan,Drake,1515,198,161,0,0,0,0
 Love Turns Lonely,Sophie Simmons,1310,167,160,0,0,0,0
@@ -122,7 +122,7 @@ As Long as You Love Me,Backstreet Boys,1509,212,207,0,0,0,0
 Timber,Pitbull & Kesha,2066,204,200,0,0,0,0
 Love Yourself,Justin Bieber,1375,233,229,0,0,0,0
 you're like,Jamie Fine,1463,181,179,0,0,0,0
-Titanium (feat. Sia),David Guetta,1728,210,206,0,0,0,0
+Titanium (feat. Sia),David Guetta,1728,210,206,126,79,60,30
 Umbrella (feat. JAY Z),Rihanna,2505,257,243,0,0,0,0
 Wake Me Up,Avicii,2393,249,240,0,0,0,0
 I Go Dancing,Frank Walker & Ella Henderson,1167,162,157,0,0,0,0
@@ -244,3 +244,9 @@ Mirrors,Justin Timberlake,2518,277,274,77,51,57,51
 Closer,Ne-Yo,2459,234,217,126,75,71,59
 Taste,Sabrina Carpenter,1273,157,153,113,91,67,72
 Party Rock Anthem (feat. Lauren Bennett & GoonRock),LMFAO,2514,263,258,130,73,75,36
+Rooting For You,Alessia Cara,1165,176,167,156,53,76,49
+FEVER DREAM,Alex Warren,1173,153,146,108,78,77,76
+Memories,Maroon 5,1168,189,182,91,33,78,60
+Missing Piece,Frank Walker & Alexander Stewart,1445,169,172,128,74,61,16
+I Like You (A Happier Song),Post Malone & Doja Cat,1494,195,189,101,67,73,47
+I Want You Back,*NSYNC,1410,200,196,112,94,75,91
