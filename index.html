@@ -607,6 +607,7 @@
       try {
         recentTracksByCallSign[station.callSign] = await fetchRecentTracks(station);
       } catch (error) {
+        console.error(error)
         if (station === activeRecentStation) {
           recentStatusMessageElement.textContent = `Could not load recently played: ${error.message}`;
         }
@@ -1032,6 +1033,7 @@
       try {
         await updateStationSongs(station, buildNewRows, commitMessage);
       } catch (error) {
+        console.error(error)
         songsStatusMessageElement.textContent = `Could not save: ${error.message}`;
         return; // keeps the form open so nothing you typed is lost
       }
@@ -1221,6 +1223,7 @@
       try {
         await Promise.all(STATIONS.map(loadStationSongs)); // loading from GitHub also proves the token works
       } catch (error) {
+        console.error(error)
         localStorage.removeItem(GITHUB_TOKEN_STORAGE_KEY);
         songsStatusMessageElement.textContent = `Could not unlock: ${error.message}`;
         return;
@@ -1304,6 +1307,7 @@
         radioStatusMessageElement.textContent = '';
       } catch (error) {
         if (error.name === 'AbortError') return; // a newer start or stop replaced this request
+        console.error(error)
         handleRadioFailure(`Could not start playback: ${error.message}`);
       }
     }
@@ -1333,6 +1337,7 @@
         else radioNowPlayingElement.textContent = 'No track info yet.';
       } catch (error) {
         if (station !== activeRadioStation) return;
+        console.error(error)
         radioNowPlayingElement.textContent = `Could not load now playing: ${error.message}`;
       }
     }
@@ -1380,6 +1385,7 @@
       try {
         await Promise.all(STATIONS.map(loadStationSongs));
       } catch (error) {
+        console.error(error)
         songsStatusMessageElement.textContent = `Could not load song data: ${error.message}`;
         return;
       }
