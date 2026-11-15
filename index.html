@@ -180,6 +180,12 @@
     .meter-track { height: 4px; margin-top: 4px; background: var(--border); border-radius: 2px; }
     .meter-fill { height: 100%; background: var(--accent); border-radius: 2px; }
 
+    /* Song list stats */
+    #songs-stats-panel { margin-bottom: 16px; }
+    .song-stats-table { min-width: 560px; }
+    .song-stats-table th { cursor: default; }
+    .song-stats-table th:hover { text-decoration: none; }
+
     /* Song editing */
     .song-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
     .song-toolbar:empty { display: none; }
@@ -277,6 +283,10 @@
       <div class="song-toolbar" id="song-toolbar"></div>
       <div id="song-editor"></div>
       <div class="status-message" id="songs-status-message"></div>
+      <div id="songs-stats-panel" hidden>
+        <div class="station-tabs" id="songs-duration-toggle"></div>
+        <div class="table-wrapper"><table class="song-stats-table" id="songs-stats-table"></table></div>
+      </div>
       <div class="table-wrapper"><table id="songs-table"></table></div>
     </div>
   </section>
@@ -338,7 +348,7 @@
     // Highlights the station's tab and gives the whole section that station's accent color.
     function markActiveStation(sectionElement, station) {
       sectionElement.style.setProperty('--accent', `var(${station.accentVariable})`);
-      sectionElement.querySelectorAll('.station-tab').forEach((tab) => {
+      sectionElement.querySelectorAll('.station-tab[data-call-sign]').forEach((tab) => {
         tab.classList.toggle('active', tab.dataset.callSign === station.callSign);
       });
     }
@@ -529,17 +539,19 @@
       ];
     }
 
-    function getMedian(numbers) {
+    // Linear interpolation between neighbours (same as Excel's QUARTILE.INC). fraction: 0 = min, 0.5 = median, 1 = max.
+    function getPercentile(numbers, fraction) {
       if (numbers.length === 0) return undefined;
-    
-      // Create a shallow copy and sort numerically
+
       const sorted = [...numbers].sort((a, b) => a - b);
-      const mid = Math.floor(sorted.length / 2);
-    
-      // Return middle element if odd, or average of two middle elements if even
-      return sorted.length % 2 !== 0
-        ? sorted[mid]
-        : (sorted[mid - 1] + sorted[mid]) / 2;
+      const position = (sorted.length - 1) * fraction;
+      const lowerIndex = Math.floor(position);
+      const upperIndex = Math.ceil(position);
+      return sorted[lowerIndex] + (sorted[upperIndex] - sorted[lowerIndex]) * (position - lowerIndex);
+    }
+
+    function getMedian(numbers) {
+      return getPercentile(numbers, 0.5);
     }
 
     function renderStationStats(tracks) {
@@ -624,6 +636,13 @@
 
     // Column types: 'text', 'number', 'duration' (seconds shown as m:ss), 'meter' (0-100 with a bar), 'combo', 'nps'.
     // The station duration/NPS header is built from the call sign, e.g. "chfi duration" or "ckis duration".
+    const NOTE_COUNT_HEADER = 'note count (combo)';
+    const BASE_DURATION_HEADER = 'base duration';
+
+    function getStationDurationHeader(station) {
+      return `${station.callSign.toLowerCase()} duration`;
+    }
+    
     function buildColumns(station) {
       const stationCallSignLower = station.callSign.toLowerCase();
       return [
@@ -632,8 +651,8 @@
         { header: 'note count (combo)', label: 'Notes (combo)', type: 'combo' },
         { header: 'base duration', label: 'Base length', type: 'duration' },
         { header: 'base nps', label: 'Base notes/sec', type: 'nps', durationKey: 'base duration', comboKey: 'note count (combo)' },
-        { header: `${stationCallSignLower} duration`, label: `${station.callSign} length`, type: 'duration' },
-        { header: `${stationCallSignLower} nps`, label: `${station.callSign} notes/sec`, type: 'nps', durationKey: `${stationCallSignLower} duration`, comboKey: 'note count (combo)' },
+        { header: `getStationDurationHeader(station)`, label: `${station.callSign} length`, type: 'duration' },
+        { header: `${stationCallSignLower} nps`, label: `${station.callSign} notes/sec`, type: 'nps', durationKey: `getStationDurationHeader(station)`, comboKey: 'note count (combo)' },
         { header: 'bpm', label: 'BPM', type: 'number' },
         { header: 'energy', label: 'Energy', type: 'meter' },
         { header: 'danceability', label: 'Danceability', type: 'meter' },
@@ -647,8 +666,9 @@
     let sortDirection = 1; // 1 = ascending, -1 = descending
 
     function formatDuration(totalSeconds) {
-      const minutes = Math.floor(totalSeconds / 60);
-      const seconds = String(Math.round(totalSeconds % 60)).padStart(2, '0');
+      const roundedSeconds = Math.round(totalSeconds);
+      const minutes = Math.floor(roundedSeconds / 60);
+      const seconds = String(roundedSeconds % 60).padStart(2, '0');
       return `${minutes}:${seconds}`;
     }
 
@@ -720,7 +740,7 @@
 
       // Handle custom calculated NPS sorting
       if (sortHeader.endsWith('nps')) {
-        const durationKey = sortHeader.startsWith('base') ? 'base duration' : `${activeSongStation.callSign.toLowerCase()} duration`;
+        const durationKey = sortHeader.startsWith('base') ? 'base duration' : getStationDurationHeader(activeSongStation);
         const comboKey = 'note count (combo)';
         
         const durA = Number(songA[durationKey]);
@@ -777,6 +797,116 @@
       songsStatusMessageElement.textContent = songs.length === 0 ? 'No songs yet.' : '';
     }
 
+    function renderSongList() {
+      renderTable();
+      renderSongStats();
+    }
+
+    // ---------- Song list stats ----------
+
+    const DURATION_MODE_OPTIONS = [
+      { label: 'Station duration', usesStationDuration: true },
+      { label: 'Base duration', usesStationDuration: false },
+    ];
+    let useStationDuration = true;
+
+    const songsStatsPanelElement = document.getElementById('songs-stats-panel');
+    const songsStatsTableElement = document.getElementById('songs-stats-table');
+    const songsDurationToggleElement = document.getElementById('songs-duration-toggle');
+
+    // Standard deviation is the population version (the CSV is the whole list, not a sample).
+    const SONG_STAT_DEFINITIONS = [
+      { label: 'Avg', calculate: getMean },
+      { label: 'St dev', calculate: getStandardDeviation },
+      { label: 'Min', calculate: (values) => getPercentile(values, 0) },
+      { label: 'Q1', calculate: (values) => getPercentile(values, 0.25) },
+      { label: 'Median', calculate: getMedian },
+      { label: 'Q3', calculate: (values) => getPercentile(values, 0.75) },
+      { label: 'Max', calculate: (values) => getPercentile(values, 1) },
+    ];
+
+    function getMean(values) {
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
+    function getStandardDeviation(values) {
+      const mean = getMean(values);
+      const meanSquaredDeviation = getMean(values.map((value) => (value - mean) ** 2));
+      return Math.sqrt(meanSquaredDeviation);
+    }
+
+    // Returns undefined when the song lacks usable data, so it is skipped by the stats.
+    function getNotesPerSecond(song, durationHeader) {
+      const noteCount = song[NOTE_COUNT_HEADER];
+      const durationSeconds = song[durationHeader];
+      if (typeof noteCount !== 'number' || typeof durationSeconds !== 'number' || durationSeconds <= 0) {
+        return undefined;
+      }
+      return noteCount / durationSeconds;
+    }
+
+    function buildSongMetrics(station) {
+      const durationHeader = useStationDuration ? getStationDurationHeader(station) : BASE_DURATION_HEADER;
+      return [
+        { label: 'Note count', type: 'number', getValue: (song) => song[NOTE_COUNT_HEADER] },
+        { label: 'Duration', type: 'duration', getValue: (song) => song[durationHeader] },
+        { label: 'Notes/sec', type: 'rate', getValue: (song) => getNotesPerSecond(song, durationHeader) },
+      ];
+    }
+
+    function formatStatValue(metricType, value) {
+      if (metricType === 'duration') return formatDuration(value);
+      const decimalPlaces = metricType === 'rate' ? 2 : 1;
+      return String(Number(value.toFixed(decimalPlaces))); // drops trailing zeros
+    }
+
+    function renderSongStats() {
+      const songs = songsByCallSign[activeSongStation.callSign] || [];
+      songsStatsPanelElement.hidden = songs.length === 0;
+      songsStatsTableElement.replaceChildren();
+      if (songs.length === 0) return;
+
+      const headerRow = createElement('tr');
+      headerRow.appendChild(createElement('th', ''));
+      SONG_STAT_DEFINITIONS.forEach((stat) => headerRow.appendChild(createElement('th', stat.label)));
+      songsStatsTableElement.appendChild(createElement('thead')).appendChild(headerRow);
+
+      const body = songsStatsTableElement.appendChild(createElement('tbody'));
+      buildSongMetrics(activeSongStation).forEach((metric) => {
+        const values = songs.map((song) => metric.getValue(song)).filter(Number.isFinite);
+        const row = createElement('tr');
+        row.appendChild(createElement('th', metric.label));
+        SONG_STAT_DEFINITIONS.forEach((stat) => {
+          const cellText = values.length === 0
+            ? EMPTY_CELL_TEXT
+            : formatStatValue(metric.type, stat.calculate(values));
+          row.appendChild(createElement('td', cellText));
+        });
+        body.appendChild(row);
+      });
+    }
+
+    function markActiveDurationMode() {
+      songsDurationToggleElement.querySelectorAll('.station-tab').forEach((button) => {
+        const buttonUsesStationDuration = button.dataset.usesStationDuration === 'true';
+        button.classList.toggle('active', buttonUsesStationDuration === useStationDuration);
+      });
+    }
+
+    function createDurationModeToggle() {
+      DURATION_MODE_OPTIONS.forEach((option) => {
+        const button = createElement('button', option.label, 'station-tab');
+        button.dataset.usesStationDuration = String(option.usesStationDuration);
+        button.addEventListener('click', () => {
+          useStationDuration = option.usesStationDuration;
+          markActiveDurationMode();
+          renderSongStats();
+        });
+        songsDurationToggleElement.appendChild(button);
+      });
+      markActiveDurationMode();
+    }
+
     function parseSongsCsv(csvText, shouldConvertTypes) {
       return Papa.parse(csvText, {
         header: true,
@@ -805,7 +935,7 @@
       sortHeader = null;
       closeSongEditor();
       markActiveStation(songsSectionElement, station);
-      renderTable();
+      renderSongList();
     }
 
     // ---------- Song editing (owner only, saves straight to GitHub) ----------
@@ -896,7 +1026,7 @@
         return; // keeps the form open so nothing you typed is lost
       }
       closeSongEditor();
-      renderTable(); // also clears the "Saving..." message
+      renderSongList(); // also clears the "Saving..." message
     }
 
     // A song is identified by title + artist, so each list can only hold a given song once.
@@ -1074,7 +1204,7 @@
         return;
       }
       renderSongToolbar();
-      renderTable();
+      renderSongList();
     }
 
     function lockEditing() {
@@ -1204,6 +1334,7 @@
 
       createStationToggle(recentTabsElement, selectRecentStation);
       createStationToggle(songsTabsElement, selectSongStation);
+      createDurationModeToggle();
       songsToggleElement.addEventListener('click', toggleSongsSection);
 
       selectRecentStation(activeRecentStation);
