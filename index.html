@@ -227,6 +227,20 @@
     }
     .song-form-buttons { display: flex; gap: 8px; grid-column: 1 / -1; }
     .song-form-title { grid-column: 1 / -1; margin: 0; font-size: 1.1rem; color: var(--accent); }
+    .song-form-section {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+    }
+    .song-form-section-title {
+      grid-column: 1 / -1;
+      margin: 0;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
     .song-form.editing { border-color: var(--editing-color); background: #3f2a00; }
     .song-form.editing .song-form-title { color: var(--editing-color); }
     tr.editing-row td { background: #3f2a00; border-bottom-color: var(--editing-color); }
@@ -649,21 +663,36 @@
       return `${station.callSign.toLowerCase()} duration`;
     }
     
+    const SONG_FORM_SECTIONS = [
+      { key: 'info', title: 'Basic song info' },
+      { key: 'stats', title: 'Stats' },
+      { key: 'attributes', title: 'Attributes' },
+    ];
+
+    // usesStationDuration: false = base column, true = station column, undefined = always shown.
+    // formSection: which form section the column's input goes in. Columns without one (the calculated NPS columns) are not editable.
     function buildColumns(station) {
       const stationCallSignLower = station.callSign.toLowerCase();
       return [
-        { header: 'name', label: 'Title', type: 'text' },
-        { header: 'artist', label: 'Artist', type: 'text' },
-        { header: 'note count (combo)', label: 'Notes (combo)', type: 'combo' },
-        { header: 'base duration', label: 'Base length', type: 'duration' },
-        { header: 'base nps', label: 'Base notes/sec', type: 'nps', durationKey: 'base duration', comboKey: 'note count (combo)' },
-        { header: getStationDurationHeader(station), label: `${station.callSign} length`, type: 'duration' },
-        { header: `${stationCallSignLower} nps`, label: `${station.callSign} notes/sec`, type: 'nps', durationKey: getStationDurationHeader(station), comboKey: 'note count (combo)' },
-        { header: 'bpm', label: 'BPM', type: 'number' },
-        { header: 'energy', label: 'Energy', type: 'meter' },
-        { header: 'danceability', label: 'Danceability', type: 'meter' },
-        { header: 'happiness', label: 'Happiness', type: 'meter' },
+        { header: 'name', label: 'Title', type: 'text', formSection: 'info' },
+        { header: 'artist', label: 'Artist', type: 'text', formSection: 'info' },
+        { header: NOTE_COUNT_HEADER, label: 'Notes (combo)', type: 'combo', formSection: 'stats' },
+        { header: BASE_DURATION_HEADER, label: 'Base length', type: 'duration', usesStationDuration: false, formSection: 'stats' },
+        { header: 'base nps', label: 'Base notes/sec', type: 'nps', usesStationDuration: false, durationKey: BASE_DURATION_HEADER, comboKey: NOTE_COUNT_HEADER },
+        { header: getStationDurationHeader(station), label: `${station.callSign} length`, type: 'duration', usesStationDuration: true, formSection: 'stats' },
+        { header: `${stationCallSignLower} nps`, label: `${station.callSign} notes/sec`, type: 'nps', usesStationDuration: true, durationKey: getStationDurationHeader(station), comboKey: NOTE_COUNT_HEADER },
+        { header: 'bpm', label: 'BPM', type: 'number', formSection: 'stats' },
+        { header: 'energy', label: 'Energy', type: 'meter', formSection: 'attributes' },
+        { header: 'danceability', label: 'Danceability', type: 'meter', formSection: 'attributes' },
+        { header: 'happiness', label: 'Happiness', type: 'meter', formSection: 'attributes' },
       ];
+    }
+
+    // The table only shows the duration columns that match the toggle. The form still uses the full list from buildColumns.
+    function buildTableColumns(station) {
+      return buildColumns(station).filter(
+        (column) => column.usesStationDuration === undefined || column.usesStationDuration === useStationDuration
+      );
     }
 
     const songsByCallSign = {};
@@ -778,7 +807,7 @@
     }
 
     function renderTable() {
-      const columns = buildColumns(activeSongStation);
+      const columns = buildTableColumns(activeSongStation);
       const songs = [...(songsByCallSign[activeSongStation.callSign] || [])];
       if (sortHeader) songs.sort(compareSongs);
 
@@ -910,7 +939,9 @@
         button.addEventListener('click', () => {
           useStationDuration = option.usesStationDuration;
           markActiveDurationMode();
-          renderSongStats();
+          const isSortColumnStillVisible = buildTableColumns(activeSongStation).some((column) => column.header === sortHeader);
+          if (!isSortColumnStillVisible) sortHeader = null; // the sorted column was just hidden, so drop the sort
+          renderSongList();
         });
         songsDurationToggleElement.appendChild(button);
       });
@@ -1016,7 +1047,7 @@
       const parsed = parseSongsCsv(text, false); // keep every value as the exact text in the file
       const headers = parsed.meta.fields?.length
         ? parsed.meta.fields
-        : buildColumns(station).map((column) => column.header);
+        : buildColumns(station).filter((column) => column.formSection).map((column) => column.header);
 
       const newRows = buildNewRows(parsed.data);
       const newCsvText = Papa.unparse(
@@ -1119,8 +1150,16 @@
       const formTitle = isEditing ? `Editing: ${originalSong.name} - ${originalSong.artist}` : 'Add a new song';
       form.appendChild(createElement('h3', formTitle, 'song-form-title'));
 
-      // Exclude NPS since it is calculated, but keep Combo, Durations, and BPM editable
-      const editableColumns = columns.filter((column) => column.type !== 'nps');
+      // Columns without a formSection (the calculated NPS columns) are not editable
+      const editableColumns = columns.filter((column) => column.formSection);
+
+      const sectionElementsByKey = {};
+      SONG_FORM_SECTIONS.forEach((section) => {
+        const sectionElement = createElement('div', undefined, 'song-form-section');
+        sectionElement.appendChild(createElement('h4', section.title, 'song-form-section-title'));
+        sectionElementsByKey[section.key] = sectionElement;
+        form.appendChild(sectionElement);
+      });
 
       editableColumns.forEach((column) => {
         const input = createElement('input');
@@ -1149,7 +1188,7 @@
         const unitSuffix = column.type === 'duration' ? ' (sec)' : '';
         const field = createElement('label', undefined, 'song-form-field');
         field.append(createElement('span', `${column.label}${unitSuffix}`, 'stat-label'), input);
-        form.appendChild(field);
+        sectionElementsByKey[column.formSection].appendChild(field);
       });
 
       const saveButton = createElement('button', isEditing ? 'Save changes' : 'Add song', 'action-button');
