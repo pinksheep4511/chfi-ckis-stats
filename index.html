@@ -177,9 +177,20 @@
     th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); overflow-wrap: break-word; }
     th { color: var(--accent); cursor: pointer; user-select: none; }
     th:hover { text-decoration: underline; }
+    th[aria-sort]::after {
+      content: '';
+      display: inline-block;
+      margin-left: 6px;
+      vertical-align: middle;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+    }
+    th[aria-sort="ascending"]::after { border-bottom: 6px solid currentColor; }
+    th[aria-sort="descending"]::after { border-top: 6px solid currentColor; }
     .meter-value { display: block; font-variant-numeric: tabular-nums; }
     .meter-track { height: 4px; margin-top: 4px; background: var(--border); border-radius: 2px; }
     .meter-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+    .combo-rank { color: var(--text-muted); }
 
     /* Song list stats */
     #songs-stats-panel { margin-bottom: 16px; }
@@ -280,8 +291,10 @@
       <input class="radio-volume" id="radio-volume" type="range" min="0" max="100" value="70" aria-label="Volume">
     </div>
     <div class="status-message" id="radio-status-message"></div>
-    <div class="stat-label">Now playing</div>
-    <div id="radio-now-playing"></div>
+    <div id="radio-now-playing-section" hidden>
+      <div class="stat-label">Now playing</div>
+      <div id="radio-now-playing"></div>
+    </div>
   </section>
 
   <section class="station-section" id="recent-section">
@@ -292,7 +305,7 @@
     <div id="recent-days"></div>
   </section>
 
-  <section class="station-section" id="songs-section">
+  <section class="station-section" id="songs-section" hidden>
     <button class="section-toggle" id="songs-toggle" aria-expanded="false" aria-controls="songs-content">
       <span>Song lists</span>
       <span class="section-toggle-icon" aria-hidden="true">+</span>
@@ -335,7 +348,7 @@
     const GITHUB_REPOSITORY = 'chfi-ckis-stats';
     const GITHUB_BRANCH = 'main';
     const GITHUB_TOKEN_STORAGE_KEY = 'githubEditToken';
-    const EDIT_MODE_URL_HASH = '#edit'; // the Unlock button only appears when the page address ends with this
+    const SONG_LISTS_URL_HASH = '#edit'; // the song lists section only appears when the page address ends with this (change it to anything you like)
 
     // ---------- Shared helpers ----------
 
@@ -654,6 +667,27 @@
       songsToggleElement.querySelector('.section-toggle-icon').textContent = willOpen ? '-' : '+';
     }
 
+    function updateSongListsVisibility() {
+      songsSectionElement.hidden = location.hash !== SONG_LISTS_URL_HASH;
+      if (!songsSectionElement.hidden) loadSongListsOnce();
+    }
+
+    let hasRequestedSongLists = false; // stays true after a successful load, so the CSVs are fetched once
+
+    async function loadSongListsOnce() {
+      if (hasRequestedSongLists) return;
+      hasRequestedSongLists = true;
+      songsStatusMessageElement.textContent = 'Loading...';
+      try {
+        await Promise.all(STATIONS.map(loadStationSongs));
+      } catch (error) {
+        songsStatusMessageElement.textContent = `Could not load song data: ${error.message}`;
+        hasRequestedSongLists = false; // lets the next reveal try again
+        return;
+      }
+      selectSongStation(activeSongStation); // renders the table and clears the "Loading..." message
+    }
+
     // Column types: 'text', 'number', 'duration' (seconds shown as m:ss), 'meter' (0-100 with a bar), 'combo', 'nps'.
     // The station duration/NPS header is built from the call sign, e.g. "chfi duration" or "ckis duration".
     const NOTE_COUNT_HEADER = 'note count (combo)';
@@ -743,7 +777,11 @@
           });
           const percentile = Math.round(((worseCount + 0.5 * tieCount) / totalSongs) * 100);
           
-          cell.textContent = `${numericValue} (#${rank} \u00b7 ${formatOrdinal(percentile)} percentile)`;
+          cell.append(
+            String(numericValue),
+            ' ',
+            createElement('span', `(#${rank} \u00b7 ${formatOrdinal(percentile)} percentile)`, 'combo-rank')
+          );
         }
       } else if (column.type === 'nps') {
         const duration = Number(song[column.durationKey]);
@@ -816,6 +854,7 @@
       const headerRow = createElement('tr');
       columns.forEach((column) => {
         const headerCell = createElement('th', column.label);
+        if (column.header === sortHeader) headerCell.setAttribute('aria-sort', sortDirection === 1 ? 'ascending' : 'descending');
         headerCell.addEventListener('click', () => handleHeaderClick(column.header));
         headerRow.appendChild(headerCell);
       });
@@ -1248,7 +1287,7 @@
           createActionButton('Add song', () => openSongEditor(null)),
           createActionButton('Lock editing', lockEditing)
         );
-      } else if (location.hash === EDIT_MODE_URL_HASH) {
+      } else {
         songToolbarElement.appendChild(createActionButton('Unlock editing', unlockEditing));
       }
     }
@@ -1288,6 +1327,7 @@
     const radioVolumeElement = document.getElementById('radio-volume');
     const radioStatusMessageElement = document.getElementById('radio-status-message');
     const radioNowPlayingElement = document.getElementById('radio-now-playing');
+    const radioNowPlayingSectionElement = document.getElementById('radio-now-playing-section');
 
     const radioAudioElement = new Audio();
     let activeRadioStation = STATIONS[0];
@@ -1297,6 +1337,9 @@
     function setRadioPlaying(isPlaying) {
       isRadioPlaying = isPlaying;
       radioPlayButtonElement.textContent = isPlaying ? 'Stop' : 'Play';
+      radioNowPlayingSectionElement.hidden = !isPlaying;
+      if (isPlaying) refreshNowPlaying(); // also runs when switching stations while playing
+      else radioNowPlayingElement.replaceChildren(); // so the next Play never flashes an old track
     }
 
     function releaseRadioStream() {
@@ -1367,6 +1410,7 @@
     }
 
     async function refreshNowPlaying() {
+      if (!isRadioPlaying) return; // nothing to show, and no request to waste
       const station = activeRadioStation;
       try {
         const [latestTrack] = await fetchRecentTracks(station, { days: 2, limit: 1 });
@@ -1376,6 +1420,7 @@
         else radioNowPlayingElement.textContent = 'No track info yet.';
       } catch (error) {
         if (station !== activeRadioStation) return;
+        if (!isRadioPlaying) return; // you pressed Stop while this request was in flight
         console.error(error)
         radioNowPlayingElement.textContent = `Could not load now playing: ${error.message}`;
       }
@@ -1385,7 +1430,6 @@
       activeRadioStation = station;
       markActiveStation(radioSectionElement, station);
       radioNowPlayingElement.replaceChildren();
-      refreshNowPlaying();
       if (isRadioPlaying) startRadio(); // switches the stream without pressing Play again
     }
 
@@ -1421,14 +1465,8 @@
 
       markActiveStation(songsSectionElement, activeSongStation);
       renderSongToolbar();
-      try {
-        await Promise.all(STATIONS.map(loadStationSongs));
-      } catch (error) {
-        console.error(error)
-        songsStatusMessageElement.textContent = `Could not load song data: ${error.message}`;
-        return;
-      }
-      selectSongStation(activeSongStation);
+      updateSongListsVisibility(); // loads the song lists only if the page address has the hash
+      window.addEventListener('hashchange', updateSongListsVisibility); // typing the hash into an open page reveals the section and loads it
     }
 
     start();
