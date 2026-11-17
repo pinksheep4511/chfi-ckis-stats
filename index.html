@@ -1356,21 +1356,32 @@
     // claim native support but fail on audio-only streams.
     function attachRadioStream(station) {
       releaseRadioStream();
+    
       if (window.Hls && Hls.isSupported()) {
         radioHls = new Hls();
         radioHls.on(Hls.Events.ERROR, (event, data) => {
-          if (data.fatal) handleRadioFailure(`Stream error: ${data.details}`);
+          console.error("HLS.js error:", data.type, data.details, data);
+          if (data.fatal) {
+            handleRadioFailure(`Stream error: ${data.details}`);
+          }
         });
         radioHls.loadSource(station.streamUrl);
         radioHls.attachMedia(radioAudioElement);
         return true;
       }
+    
       if (radioAudioElement.canPlayType(HLS_MIME_TYPE)) {
+        radioAudioElement.onerror = (e) => {
+          console.error("Native HLS audio element error:", e, radioAudioElement.error);
+          handleRadioFailure("Native stream error");
+        };
         radioAudioElement.src = station.streamUrl;
         return true;
       }
+    
       return false;
     }
+
 
     function handleRadioFailure(message) {
       stopRadio();
