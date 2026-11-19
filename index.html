@@ -448,10 +448,19 @@
       return tracksByDate;
     }
 
+    const TRACK_ART_DISPLAY_SIZE_PX = 64; // keep in sync with the .track-art width in the CSS
+    const TRACK_ART_PIXEL_RATIO = 2; // 2 = sharp on retina screens, 1 = smallest downloads
+    const ALBUM_ART_SIZE_PATTERN = /\/\d+x\d+bb\.jpg$/; // matches the ".../600x600bb.jpg" ending of Apple's artwork URLs
+
+    // Asks Apple's image server for a smaller square version. Returns the URL unchanged if it doesn't match the pattern.
+    function buildSizedAlbumArtUrl(albumArtUrl, pixelSize) {
+      return albumArtUrl.replace(ALBUM_ART_SIZE_PATTERN, `/${pixelSize}x${pixelSize}bb.jpg`);
+    }
+
     function createTrackArt(albumArtUrl) {
       if (!isSecureUrl(albumArtUrl)) return createElement('div', undefined, 'track-art'); // grey placeholder
       const art = createElement('img', undefined, 'track-art');
-      art.src = albumArtUrl;
+      art.src = buildSizedAlbumArtUrl(albumArtUrl, TRACK_ART_DISPLAY_SIZE_PX * TRACK_ART_PIXEL_RATIO);
       art.alt = '';
       art.loading = 'lazy';
       return art;
