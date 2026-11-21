@@ -1387,6 +1387,7 @@
 
     const RADIO_MAX_RECOVERY_ATTEMPTS = 10; // covers skipping every segment of a longer ad
     const RADIO_AD_SKIP_DELAY_MS = 1000; // blocked ad segments fail instantly, so without a pause the retry loop spins hundreds of times a second
+    const RADIO_MAX_AD_RELOADS = 5; // how many times to re-request the stream when the playlist only had ad segments left
     const RADIO_MAX_AD_SKIP_DURATION_MS = 3 * 60 * 1000; // give up if nothing but ad segments arrive for this long
     const BLOCK_PRE_ROLL_ADS_STORAGE_KEY = 'blockPreRollAds';
     // Ads and music are served from the same host, so match on the ad path. From your Network tab, ad segments are
@@ -1417,6 +1418,7 @@
     let radioHls = null;
     let radioRecoveryAttempts = 0;
     let radioAdSkipStartedAtMs = null; // when the current run of skipped ad segments began
+    let radioAdReloadCount = 0;
     let isRadioPlaying = false;
     let isRadioStreaming = false; // true only while audio is actually coming out, not while connecting
 
@@ -1486,7 +1488,19 @@
       if (isAdSegmentError) { // blocked by the switch or by an ad blocker: carry on after that segment
         radioAdSkipStartedAtMs ??= Date.now();
         if (Date.now() - radioAdSkipStartedAtMs > RADIO_MAX_AD_SKIP_DURATION_MS) return false;
-        radioStatusMessageElement.textContent = `Skipping pre-roll ad... (${Math.floor((Date.now() - radioAdSkipStartedAtMs) / 1000)}s)`;
+        radioStatusMessageElement.textContent = `Skipping pre-roll ads... (${Math.round((Date.now() - radioAdSkipStartedAtMs) / 1000)}s)`;
+
+        const lastKnownSegmentNumber = hlsToRecover.levels[data.frag.level]?.details?.endSN;
+        const wasLastKnownSegment = data.frag.sn >= lastKnownSegmentNumber;
+        if (wasLastKnownSegment && radioAdReloadCount < RADIO_MAX_AD_RELOADS) {
+          // Nothing but ads was left in this playlist, so ask for a fresh one instead of waiting at its end.
+          radioAdReloadCount += 1;
+          setTimeout(() => {
+            if (radioHls === hlsToRecover) hlsToRecover.loadSource(activeRadioStation.streamUrl);
+          }, RADIO_AD_SKIP_DELAY_MS);
+          return true;
+        }
+
         const resumePosition = data.frag.start + data.frag.duration;
         setTimeout(() => {
           if (radioHls === hlsToRecover) hlsToRecover.startLoad(resumePosition); // ignore if you stopped or switched station meanwhile
@@ -1552,6 +1566,7 @@
       isAdBreakAudible = false;
       radioRecoveryAttempts = 0;
       radioAdSkipStartedAtMs = null;
+      radioAdReloadCount = 0;
       radioStatusMessageElement.textContent = 'Connecting...';
       if (!attachRadioStream(activeRadioStation)) {
         radioStatusMessageElement.textContent = 'This browser cannot play HLS streams.';
@@ -1573,6 +1588,7 @@
       releaseRadioStream(); // so the next Play joins the live broadcast instead of resuming old audio
       setRadioPlaying(false);
       setRadioStreaming(false);
+      radioStatusMessageElement.textContent = '';
     }
 
     function handleRadioPlayButtonClick() {
@@ -1722,7 +1738,11 @@
       radioVolumeElement.addEventListener('input', handleRadioVolumeInput);
       radioAudioElement.addEventListener('playing', () => {
         radioRecoveryAttempts = 0; // audio is flowing again, so give the next problem a fresh set of attempts
+        if (radioAdSkipStartedAtMs !== null) {
+          console.log(`Music started ${((Date.now() - radioAdSkipStartedAtMs) / 1000).toFixed(1)}s after the first skipped ad segment (${radioAdReloadCount} reloads)`);
+        }
         radioAdSkipStartedAtMs = null;
+        radioAdReloadCount = 0;
         radioStatusMessageElement.textContent = '';
         setRadioStreaming(true);
       });
