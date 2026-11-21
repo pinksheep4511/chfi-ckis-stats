@@ -175,7 +175,9 @@
     #songs-content { margin-top: 12px; }
 
     /* Live radio */
-    .radio-controls { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+    .radio-controls { display: flex; align-items: center; gap: 16px; }
+    #radio-status-message:empty { display: none; }
+    #radio-now-playing-section { margin-top: 12px; }
     .radio-button {
       min-width: 96px;
       padding: 8px 24px;
@@ -474,10 +476,8 @@
       );
 
       const timing = createElement('div', undefined, 'track-timing');
-      timing.append(
-        createElement('div', track.start_time, 'track-time'),
-        createElement('div', `${track.length_seconds} sec`, 'track-length')
-      );
+      timing.append(createElement('div', track.start_time, 'track-time'));
+      if (!isMissing(track.length_seconds)) timing.append(createElement('div', `${track.length_seconds} sec`, 'track-length'));
 
       const card = createElement('div', undefined, 'track-card');
       card.append(createTrackArt(track.album_art_url), info, timing);
@@ -1350,6 +1350,17 @@
 
     const HLS_MIME_TYPE = 'application/vnd.apple.mpegurl';
 
+    const RADIO_MAX_RECOVERY_ATTEMPTS = 10; // covers skipping every segment of a longer ad
+    const RADIO_RECOVERY_DELAY_MS = 2000;
+    const RADIO_FRAGMENT_LOAD_POLICY = { // hls.js defaults retry 6 times with growing delays, which makes a blocked request take about 30 s to give up
+      default: {
+        maxTimeToFirstByteMs: 10000,
+        maxLoadTimeMs: 120000,
+        timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+        errorRetry: { maxNumRetry: 1, retryDelayMs: 1000, maxRetryDelayMs: 1000 },
+      },
+    };
+
     const radioSectionElement = document.getElementById('radio-section');
     const radioTabsElement = document.getElementById('radio-station-tabs');
     const radioPlayButtonElement = document.getElementById('radio-play-button');
@@ -1361,14 +1372,33 @@
     const radioAudioElement = new Audio();
     let activeRadioStation = STATIONS[0];
     let radioHls = null;
+    let radioRecoveryAttempts = 0;
     let isRadioPlaying = false;
+    let isRadioStreaming = false; // true only while audio is actually coming out, not while connecting
 
     function setRadioPlaying(isPlaying) {
       isRadioPlaying = isPlaying;
       radioPlayButtonElement.textContent = isPlaying ? 'Stop' : 'Play';
-      radioNowPlayingSectionElement.hidden = !isPlaying;
-      if (isPlaying) refreshNowPlaying(); // also runs when switching stations while playing
-      else radioNowPlayingElement.replaceChildren(); // so the next Play never flashes an old track
+    }
+
+    function setRadioStreaming(isStreaming) {
+      if (isStreaming === isRadioStreaming) return; // 'playing' also fires after a stall, so ignore repeats
+      isRadioStreaming = isStreaming;
+      radioNowPlayingSectionElement.hidden = !isStreaming;
+
+      clearInterval(liveFeedTimerId);
+      shownLiveDisplayKey = null;
+      radioNowPlayingElement.replaceChildren();
+
+      if (!isStreaming) {
+        liveFeedTracks = [];
+        return;
+      }
+      // Stream tags collected while connecting are kept on purpose: a pre-roll ad's tags arrive before 'playing' fires.
+      radioNowPlayingElement.textContent = 'Waiting for track info...';
+      showReachedLiveTrack(); // applies any ad marker the audio has already reached
+      refreshLiveFeed();
+      liveFeedTimerId = setInterval(refreshLiveFeed, LIVE_FEED_REFRESH_MS);
     }
 
     function releaseRadioStream() {
@@ -1380,6 +1410,33 @@
       radioAudioElement.load(); // closes the connection
     }
 
+    // Ad segments are served from a different host than the station's own audio, so a segment from another host is an ad.
+    function isFragmentFromAnotherHost(fragment, station) {
+      return new URL(fragment.url).hostname !== new URL(station.streamUrl).hostname;
+    }
+
+    // Returns true if it started a recovery, false if it gave up so the caller can show the error.
+    function tryRecoverFromFatalStreamError(data) {
+      if (radioRecoveryAttempts >= RADIO_MAX_RECOVERY_ATTEMPTS) return false;
+      radioRecoveryAttempts += 1;
+      console.warn(`Trying to reconnect after error (attempt ${radioRecoveryAttempts}/${RADIO_MAX_RECOVERY_ATTEMPTS})`)
+      const hlsToRecover = radioHls;
+
+      const isBlockedAdSegment = data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR
+        && data.frag && isFragmentFromAnotherHost(data.frag, activeRadioStation);
+      if (isBlockedAdSegment) {
+        console.warn('Pre-roll ad blocked (likely ad blocker)')
+        hlsToRecover.startLoad(data.frag.start + data.frag.duration); // carry on after the segment that could not load
+      } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        hlsToRecover.recoverMediaError();
+      } else {
+        setTimeout(() => {
+          if (radioHls === hlsToRecover) hlsToRecover.startLoad(); // ignore if you stopped or switched station meanwhile
+        }, RADIO_RECOVERY_DELAY_MS);
+      }
+      return true;
+    }
+
     // hls.js first: it handles audio-only HLS in every browser with Media Source support.
     // Native HLS is the fallback (iPhones without Media Source support), because some browsers
     // claim native support but fail on audio-only streams.
@@ -1387,11 +1444,12 @@
       releaseRadioStream();
     
       if (window.Hls && Hls.isSupported()) {
-        radioHls = new Hls();
+        radioHls = new Hls({ fragLoadPolicy: RADIO_FRAGMENT_LOAD_POLICY });
+        radioHls.on(Hls.Events.FRAG_PARSING_METADATA, (event, data) => handleStreamId3(data.samples));
         radioHls.on(Hls.Events.ERROR, (event, data) => {
           console.error("HLS.js error:", data.type, data.details, data);
-          if (data.fatal) {
-            handleRadioFailure(`Stream error: ${data.details}`);
+          if (data.fatal && !tryRecoverFromFatalStreamError(data)) {
+            handleRadioFailure(`Stream error: ${data.details}. If you use an ad blocker, it may be blocking the stream's ad segments.`);
           }
         });
         radioHls.loadSource(station.streamUrl);
@@ -1418,6 +1476,10 @@
     }
 
     async function startRadio() {
+      setRadioStreaming(false);
+      pendingStreamMarkers = [];
+      isAdBreakAudible = false;
+      radioRecoveryAttempts = 0;
       radioStatusMessageElement.textContent = 'Connecting...';
       if (!attachRadioStream(activeRadioStation)) {
         radioStatusMessageElement.textContent = 'This browser cannot play HLS streams.';
@@ -1438,6 +1500,7 @@
       radioAudioElement.pause();
       releaseRadioStream(); // so the next Play joins the live broadcast instead of resuming old audio
       setRadioPlaying(false);
+      setRadioStreaming(false);
     }
 
     function handleRadioPlayButtonClick() {
@@ -1449,23 +1512,6 @@
       radioAudioElement.volume = Number(radioVolumeElement.value) / 100;
     }
 
-    async function refreshNowPlaying() {
-      if (!isRadioPlaying) return; // nothing to show, and no request to waste
-      const station = activeRadioStation;
-      try {
-        const [latestTrack] = await fetchRecentTracks(station, { days: 2, limit: 1 });
-        if (station !== activeRadioStation) return; // ignore results for a station you've switched away from
-        radioNowPlayingElement.replaceChildren();
-        if (latestTrack) radioNowPlayingElement.appendChild(createTrackCard(latestTrack));
-        else radioNowPlayingElement.textContent = 'No track info yet.';
-      } catch (error) {
-        if (station !== activeRadioStation) return;
-        if (!isRadioPlaying) return; // you pressed Stop while this request was in flight
-        console.error(error)
-        radioNowPlayingElement.textContent = `Could not load now playing: ${error.message}`;
-      }
-    }
-
     function selectRadioStation(station) {
       activeRadioStation = station;
       markActiveStation(radioSectionElement, station);
@@ -1473,16 +1519,140 @@
       if (isRadioPlaying) startRadio(); // switches the stream without pressing Play again
     }
 
+    // ---------- Live now playing (Rogers feed for the song, stream tags for ad breaks) ----------
+
+    const ROGERS_RECENTLY_PLAYED_URL_BASE = 'https://radio.rogersdigitalmedia.com/service/';
+    const LIVE_FEED_REFRESH_MS = 10 * 1000;
+    const LIVE_STREAM_DELAY_SECONDS = 30; // how far the audio runs behind the feed. Tune by ear (see the notes)
+    const LIVE_TRACK_END_GRACE_SECONDS = 10; // after a song's length passes, wait this long before calling it talk or an ad
+
+    const ID3_HEADER_BYTES = 10;
+    const ID3_FRAME_HEADER_BYTES = 10;
+    const ID3_COMMENT_FRAME_ID = 'COMM';
+    const AD_BREAK_MARKER_TEXT = 'adswizzContext'; // only appears in the tags of ad segments
+
+    const clockTimeFormatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: TIME_ZONE,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+
+    let pendingStreamMarkers = []; // { startTime, isAdBreak } from the stream's tags, waiting for the audio to reach them
+    let isAdBreakAudible = false;
+    let liveFeedTracks = []; // newest first
+    let shownLiveDisplayKey = null;
+    let liveFeedTimerId = null;
+
+    // Splits one raw ID3v2 tag into its frames: [{ id: 'COMM', bytes: Uint8Array }, ...].
+    function readId3Frames(id3Bytes) {
+      const frames = [];
+      const isId3Tag = id3Bytes[0] === 0x49 && id3Bytes[1] === 0x44 && id3Bytes[2] === 0x33; // "ID3"
+      if (!isId3Tag) return frames;
+
+      const majorVersion = id3Bytes[3];
+      const view = new DataView(id3Bytes.buffer, id3Bytes.byteOffset, id3Bytes.byteLength);
+      const readSyncsafeInt = (offset) =>
+        (view.getUint8(offset) << 21) | (view.getUint8(offset + 1) << 14) | (view.getUint8(offset + 2) << 7) | view.getUint8(offset + 3);
+      const tagEnd = Math.min(ID3_HEADER_BYTES + readSyncsafeInt(6), id3Bytes.length);
+
+      let offset = ID3_HEADER_BYTES;
+      while (offset + ID3_FRAME_HEADER_BYTES <= tagEnd) {
+        const frameId = String.fromCharCode(...id3Bytes.subarray(offset, offset + 4));
+        const frameSize = majorVersion === 4 ? readSyncsafeInt(offset + 4) : view.getUint32(offset + 4);
+        if (frameSize === 0 || !/^[A-Z0-9]{4}$/.test(frameId)) break; // padding or garbage, so stop
+        const frameStart = offset + ID3_FRAME_HEADER_BYTES;
+        frames.push({ id: frameId, bytes: id3Bytes.subarray(frameStart, frameStart + frameSize) });
+        offset = frameStart + frameSize;
+      }
+      return frames;
+    }
+
+    function isAdBreakFrame(frame) {
+      return frame.id === ID3_COMMENT_FRAME_ID && new TextDecoder().decode(frame.bytes).includes(AD_BREAK_MARKER_TEXT);
+    }
+
+    function handleStreamId3(samples) {
+      samples.forEach((sample) => {
+        const isAdBreak = readId3Frames(sample.data).some(isAdBreakFrame);
+        pendingStreamMarkers.push({ startTime: sample.pts, isAdBreak });
+      });
+    }
+
+    async function refreshLiveFeed() {
+      const station = activeRadioStation;
+      try {
+        const response = await fetch(`${ROGERS_RECENTLY_PLAYED_URL_BASE}${station.callSign}/recently_played`, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const tracks = await response.json();
+        if (station !== activeRadioStation || !isRadioStreaming) return; // you switched station or pressed Stop meanwhile
+        liveFeedTracks = tracks.sort((trackA, trackB) => Date.parse(trackB.created_at) - Date.parse(trackA.created_at));
+        renderLiveNowPlaying();
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    // created_at is a real UTC time and matches when the song started. The audio runs behind the feed, so
+    // "what you hear now" is the song that started LIVE_STREAM_DELAY_SECONDS ago or earlier.
+    function findAudibleFeedTrack() {
+      const audibleTimeMs = Date.now() - LIVE_STREAM_DELAY_SECONDS * 1000;
+      const latestStartedTrack = liveFeedTracks.find((track) => Date.parse(track.created_at) <= audibleTimeMs);
+      if (!latestStartedTrack) return null;
+      const trackEndMs = Date.parse(latestStartedTrack.created_at) + (Number(latestStartedTrack.length) + LIVE_TRACK_END_GRACE_SECONDS) * 1000;
+      return audibleTimeMs <= trackEndMs ? latestStartedTrack : null; // null once the song is over (talk, jingle or ads)
+    }
+
+    function renderLiveNowPlaying() {
+      if (!isAdBreakAudible && liveFeedTracks.length === 0) return; // still waiting for the first feed response
+      const audibleTrack = isAdBreakAudible ? null : findAudibleFeedTrack();
+      const displayKey = isAdBreakAudible ? 'ad-break' : audibleTrack ? `track-${audibleTrack.id}` : 'on-air';
+      if (displayKey === shownLiveDisplayKey) return; // nothing changed, so leave the card alone
+      shownLiveDisplayKey = displayKey;
+
+      radioNowPlayingElement.replaceChildren();
+      if (isAdBreakAudible) {
+        radioNowPlayingElement.textContent = 'Ad break';
+      } else if (audibleTrack) {
+        radioNowPlayingElement.appendChild(createTrackCard({
+          title: audibleTrack.title,
+          artist: audibleTrack.artist,
+          album_art_url: audibleTrack.high_res_art_url,
+          start_time: clockTimeFormatter.format(new Date(audibleTrack.created_at)),
+          length_seconds: audibleTrack.length,
+        }));
+      } else {
+        radioNowPlayingElement.textContent = 'On air';
+      }
+    }
+
+    // Runs several times a second while audio plays. Tags arrive ahead of the sound, so an ad marker only
+    // counts once the audio position has reached its timestamp. This also re-checks when a song has ended.
+    function showReachedLiveTrack() {
+      const audioTime = radioAudioElement.currentTime;
+      const reachedMarkers = pendingStreamMarkers.filter((marker) => marker.startTime <= audioTime);
+      if (reachedMarkers.length > 0) {
+        pendingStreamMarkers = pendingStreamMarkers.filter((marker) => marker.startTime > audioTime);
+        isAdBreakAudible = reachedMarkers[reachedMarkers.length - 1].isAdBreak;
+      }
+      renderLiveNowPlaying();
+    }
+
     // ---------- Start ----------
     function refreshLiveData() {
       refreshRecentlyPlayed(activeRecentStation);
-      refreshNowPlaying();
     }
 
     async function start() {
       createStationToggle(radioTabsElement, selectRadioStation);
       radioPlayButtonElement.addEventListener('click', handleRadioPlayButtonClick);
       radioVolumeElement.addEventListener('input', handleRadioVolumeInput);
+      radioAudioElement.addEventListener('playing', () => {
+        radioRecoveryAttempts = 0; // audio is flowing again, so give the next problem a fresh set of attempts
+        setRadioStreaming(true);
+      });
+      radioAudioElement.addEventListener('timeupdate', showReachedLiveTrack);
       handleRadioVolumeInput(); // applies the slider's starting position
       selectRadioStation(activeRadioStation);
 
