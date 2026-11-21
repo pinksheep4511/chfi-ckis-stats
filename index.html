@@ -48,6 +48,7 @@
       --chfi-accent: #00e5ff;
       --ckis-accent: #ff2e93;
       --editing-color: #ffaa00;
+      --success-color: #55ff55;
       --accent: var(--chfi-accent); /* each .station-section overrides this with its selected station */
     }
     * { box-sizing: border-box; }
@@ -191,6 +192,8 @@
       cursor: pointer;
     }
     .radio-volume { flex: 1; min-width: 0; accent-color: var(--accent); }
+    .radio-option { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--text-muted); cursor: pointer; }
+    .radio-option input { width: 18px; height: 18px; accent-color: var(--accent); }
     #radio-now-playing { margin-top: 8px; }
 
     /* Song lists */
@@ -277,6 +280,9 @@
     .song-form.editing { border-color: var(--editing-color); background: #3f2a00; }
     .song-form.editing .song-form-title { color: var(--editing-color); }
     tr.editing-row td { background: #3f2a00; border-bottom-color: var(--editing-color); }
+    .status-message.success { color: var(--success-color); }
+    tr.saved-row td { animation: saved-row-flash 2.5s ease-out; }
+    @keyframes saved-row-flash { from { background: #153f15; } to { background: transparent; } }
 
     /* Phones in portrait: use as much width as possible */
     @media (max-width: 600px) {
@@ -312,6 +318,10 @@
       <button class="radio-button" id="radio-play-button">Play</button>
       <input class="radio-volume" id="radio-volume" type="range" min="0" max="100" value="70" aria-label="Volume">
     </div>
+    <label class="radio-option">
+      <input type="checkbox" id="radio-block-ads">
+      <span>Block pre-roll ads (may cause streaming issues)</span>
+    </label>
     <div class="status-message" id="radio-status-message"></div>
     <div id="radio-now-playing-section" hidden>
       <div class="stat-label">Now playing</div>
@@ -892,8 +902,10 @@
 
       const body = songsTableElement.appendChild(createElement('tbody'));
       songs.forEach((song) => {
-        const isBeingEdited = editedSongIdentity !== null && buildSongIdentity(song) === editedSongIdentity;
-        const row = createElement('tr', undefined, isBeingEdited ? 'editing-row' : '');
+        const songIdentity = buildSongIdentity(song);
+        const isBeingEdited = editedSongIdentity !== null && songIdentity === editedSongIdentity;
+        const isRecentlySaved = savedSongIdentity !== null && songIdentity === savedSongIdentity;
+        const row = createElement('tr', undefined, isBeingEdited ? 'editing-row' : isRecentlySaved ? 'saved-row' : '');
         columns.forEach((column) => row.appendChild(createCell(column, song[column.header], song, songs)));
         if (isEditingUnlocked()) row.appendChild(createRowActionsCell(song));
         body.appendChild(row);
@@ -1053,6 +1065,26 @@
     const songEditorElement = document.getElementById('song-editor');
     let editedSongIdentity = null; // identity of the song whose edit form is open, so its table row can be highlighted
 
+    const SONG_FEEDBACK_DURATION_MS = 10000;
+    let savedSongIdentity = null; // the song that was just added or edited, so its row can flash
+    let songFeedbackTimerId = null;
+
+    function clearSongFeedback() {
+      clearTimeout(songFeedbackTimerId);
+      savedSongIdentity = null;
+      songsStatusMessageElement.classList.remove('success');
+    }
+
+    function showSongChangeFeedback(message) {
+      songsStatusMessageElement.textContent = message;
+      songsStatusMessageElement.classList.add('success');
+      songsTableElement.querySelector('.saved-row')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      songFeedbackTimerId = setTimeout(() => {
+        clearSongFeedback();
+        songsStatusMessageElement.textContent = '';
+      }, SONG_FEEDBACK_DURATION_MS);
+    }
+
     function getGitHubToken() {
       return localStorage.getItem(GITHUB_TOKEN_STORAGE_KEY);
     }
@@ -1127,7 +1159,8 @@
       songsByCallSign[station.callSign] = parseSongsCsv(newCsvText, true).data;
     }
 
-    async function applySongChange(station, commitMessage, buildNewRows) {
+    async function applySongChange(station, commitMessage, buildNewRows, { successMessage, savedSong = null }) {
+      clearSongFeedback();
       songsStatusMessageElement.textContent = 'Saving...';
       try {
         await updateStationSongs(station, buildNewRows, commitMessage);
@@ -1137,7 +1170,9 @@
         return; // keeps the form open so nothing you typed is lost
       }
       closeSongEditor();
+      savedSongIdentity = savedSong ? buildSongIdentity(savedSong) : null;
       renderSongList(); // also clears the "Saving..." message
+      showSongChangeFeedback(successMessage);
     }
 
     // A song is identified by title + artist, so each list can only hold a given song once.
@@ -1154,7 +1189,7 @@
       return applySongChange(station, `Add song: ${newSong.name}`, (rows) => {
         if (findSongIndex(rows, newSong) !== -1) throw new Error('That title and artist is already in this list.');
         return [...rows, newSong];
-      });
+      }, { successMessage: `Added "${newSong.name}" to ${station.callSign}.`, savedSong: newSong });
     }
 
     function editSong(station, originalSong, updatedValues) {
@@ -1168,7 +1203,7 @@
           throw new Error('That title and artist is already in this list.');
         }
         return rows.map((row, rowIndex) => (rowIndex === originalIndex ? updatedSong : row));
-      });
+      }, { successMessage: `Saved changes to "${updatedValues.name}".`, savedSong: updatedValues });
     }
 
     function deleteSong(station, song) {
@@ -1177,7 +1212,7 @@
         const songIndex = findSongIndex(rows, song);
         if (songIndex === -1) throw new Error('That song was already removed. Reload the page.');
         return rows.filter((row, rowIndex) => rowIndex !== songIndex);
-      });
+      }, { successMessage: `Deleted "${song.name}" from ${station.callSign}.` });
     }
 
     function createActionButton(label, onClick, extraClassName = '') {
@@ -1322,7 +1357,7 @@
     }
 
     async function unlockEditing() {
-      const enteredToken = window.prompt('Paste your GitHub token:');
+      const enteredToken = window.prompt('Enter the password:');
       if (!enteredToken) return;
 
       localStorage.setItem(GITHUB_TOKEN_STORAGE_KEY, enteredToken.trim());
@@ -1351,6 +1386,13 @@
     const HLS_MIME_TYPE = 'application/vnd.apple.mpegurl';
 
     const RADIO_MAX_RECOVERY_ATTEMPTS = 10; // covers skipping every segment of a longer ad
+    const RADIO_AD_SKIP_DELAY_MS = 1000; // blocked ad segments fail instantly, so without a pause the retry loop spins hundreds of times a second
+    const RADIO_MAX_AD_SKIP_DURATION_MS = 3 * 60 * 1000; // give up if nothing but ad segments arrive for this long
+    const BLOCK_PRE_ROLL_ADS_STORAGE_KEY = 'blockPreRollAds';
+    // Ads and music are served from the same host, so match on the ad path. From your Network tab, ad segments are
+    // under /hls/ads/ and named ad_0_*.aac. Music is under /hls/chi/rogers/<station>/.
+    const AD_SEGMENT_URL_PATTERN = /\/hls\/ads\/|adswizz\.com/;
+    const BLOCKED_AD_SEGMENT_RESPONSE = { code: 403, text: 'Blocked by the pre-roll ad switch' }; // 4xx is never retried by hls.js
     const RADIO_RECOVERY_DELAY_MS = 2000;
     const RADIO_FRAGMENT_LOAD_POLICY = { // hls.js defaults retry 6 times with growing delays, which makes a blocked request take about 30 s to give up
       default: {
@@ -1368,11 +1410,13 @@
     const radioStatusMessageElement = document.getElementById('radio-status-message');
     const radioNowPlayingElement = document.getElementById('radio-now-playing');
     const radioNowPlayingSectionElement = document.getElementById('radio-now-playing-section');
+    const radioBlockAdsElement = document.getElementById('radio-block-ads');
 
     const radioAudioElement = new Audio();
     let activeRadioStation = STATIONS[0];
     let radioHls = null;
     let radioRecoveryAttempts = 0;
+    let radioAdSkipStartedAtMs = null; // when the current run of skipped ad segments began
     let isRadioPlaying = false;
     let isRadioStreaming = false; // true only while audio is actually coming out, not while connecting
 
@@ -1410,24 +1454,49 @@
       radioAudioElement.load(); // closes the connection
     }
 
-    // Ad segments are served from a different host than the station's own audio, so a segment from another host is an ad.
-    function isFragmentFromAnotherHost(fragment, station) {
-      return new URL(fragment.url).hostname !== new URL(station.streamUrl).hostname;
+    function isAdSegmentUrl(url) {
+      return AD_SEGMENT_URL_PATTERN.test(url);
+    }
+
+    function isPreRollBlockingOn() {
+      return localStorage.getItem(BLOCK_PRE_ROLL_ADS_STORAGE_KEY) === 'true';
+    }
+
+    // Extends hls.js's own loader, so every normal segment loads exactly as before.
+    // Ad segments fail instantly with no network request, which has the same effect as an ad blocker.
+    // Built on demand because the Hls class only exists once the hls.js script has loaded.
+    function createAdBlockingFragmentLoader() {
+      const DefaultFragmentLoader = Hls.DefaultConfig.loader;
+      return class AdBlockingFragmentLoader extends DefaultFragmentLoader {
+        load(context, config, callbacks) {
+          if (!isAdSegmentUrl(context.url)) {
+            super.load(context, config, callbacks);
+            return;
+          }
+          callbacks.onError(BLOCKED_AD_SEGMENT_RESPONSE, context, null, this.stats);
+        }
+      };
     }
 
     // Returns true if it started a recovery, false if it gave up so the caller can show the error.
     function tryRecoverFromFatalStreamError(data) {
+      const hlsToRecover = radioHls;
+      const isAdSegmentError = data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR && data.frag && isAdSegmentUrl(data.frag.url);
+
+      if (isAdSegmentError) { // blocked by the switch or by an ad blocker: carry on after that segment
+        radioAdSkipStartedAtMs ??= Date.now();
+        if (Date.now() - radioAdSkipStartedAtMs > RADIO_MAX_AD_SKIP_DURATION_MS) return false;
+        radioStatusMessageElement.textContent = `Skipping pre-roll ad... (${Math.floor((Date.now() - radioAdSkipStartedAtMs) / 1000)}s)`;
+        const resumePosition = data.frag.start + data.frag.duration;
+        setTimeout(() => {
+          if (radioHls === hlsToRecover) hlsToRecover.startLoad(resumePosition); // ignore if you stopped or switched station meanwhile
+        }, RADIO_AD_SKIP_DELAY_MS);
+        return true;
+      }
+
       if (radioRecoveryAttempts >= RADIO_MAX_RECOVERY_ATTEMPTS) return false;
       radioRecoveryAttempts += 1;
-      console.warn(`Trying to reconnect after error (attempt ${radioRecoveryAttempts}/${RADIO_MAX_RECOVERY_ATTEMPTS})`)
-      const hlsToRecover = radioHls;
-
-      const isBlockedAdSegment = data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR
-        && data.frag && isFragmentFromAnotherHost(data.frag, activeRadioStation);
-      if (isBlockedAdSegment) {
-        console.warn('Pre-roll ad blocked (likely ad blocker)')
-        hlsToRecover.startLoad(data.frag.start + data.frag.duration); // carry on after the segment that could not load
-      } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
         hlsToRecover.recoverMediaError();
       } else {
         setTimeout(() => {
@@ -1444,12 +1513,14 @@
       releaseRadioStream();
     
       if (window.Hls && Hls.isSupported()) {
-        radioHls = new Hls({ fragLoadPolicy: RADIO_FRAGMENT_LOAD_POLICY });
+        const hlsConfig = { fragLoadPolicy: RADIO_FRAGMENT_LOAD_POLICY };
+        if (isPreRollBlockingOn()) hlsConfig.fLoader = createAdBlockingFragmentLoader();
+        radioHls = new Hls(hlsConfig);
         radioHls.on(Hls.Events.FRAG_PARSING_METADATA, (event, data) => handleStreamId3(data.samples));
         radioHls.on(Hls.Events.ERROR, (event, data) => {
           console.error("HLS.js error:", data.type, data.details, data);
           if (data.fatal && !tryRecoverFromFatalStreamError(data)) {
-            handleRadioFailure(`Stream error: ${data.details}. If you use an ad blocker, it may be blocking the stream's ad segments.`);
+            handleRadioFailure(`Stream error: ${data.details}. Try disabling your ad blockers or turning off the "Block pre-roll ads" option, as they may be causing streaming issues.`);
           }
         });
         radioHls.loadSource(station.streamUrl);
@@ -1480,6 +1551,7 @@
       pendingStreamMarkers = [];
       isAdBreakAudible = false;
       radioRecoveryAttempts = 0;
+      radioAdSkipStartedAtMs = null;
       radioStatusMessageElement.textContent = 'Connecting...';
       if (!attachRadioStream(activeRadioStation)) {
         radioStatusMessageElement.textContent = 'This browser cannot play HLS streams.';
@@ -1650,7 +1722,14 @@
       radioVolumeElement.addEventListener('input', handleRadioVolumeInput);
       radioAudioElement.addEventListener('playing', () => {
         radioRecoveryAttempts = 0; // audio is flowing again, so give the next problem a fresh set of attempts
+        radioAdSkipStartedAtMs = null;
+        radioStatusMessageElement.textContent = '';
         setRadioStreaming(true);
+      });
+      radioBlockAdsElement.checked = isPreRollBlockingOn();
+      radioBlockAdsElement.addEventListener('change', () => {
+        localStorage.setItem(BLOCK_PRE_ROLL_ADS_STORAGE_KEY, String(radioBlockAdsElement.checked));
+        if (isRadioPlaying) startRadio(); // the setting is read when the stream is created, so restart it
       });
       radioAudioElement.addEventListener('timeupdate', showReachedLiveTrack);
       handleRadioVolumeInput(); // applies the slider's starting position
