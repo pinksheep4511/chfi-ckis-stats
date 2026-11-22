@@ -25,7 +25,7 @@ export function normalizeText(text) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[øæœßđłıþ]/gi, (character) => TRANSLITERATION_MAP[character.toLowerCase()])
     .toLowerCase()
-    .replace(/(?<=[a-z])\$|\$(?=[a-z])/g, 's') // Ke$ha -> kesha
+    .replace(/([a-z])\$|\$(?=[a-z])/g, (_match, precedingLetter = '') => `${precedingLetter}s`) // Ke$ha -> kesha (no lookbehind: Safari before 16.4 can't parse it)
     .replace(/[^\w\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
