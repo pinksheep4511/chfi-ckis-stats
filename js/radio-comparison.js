@@ -245,6 +245,7 @@ function renderRecentlyPlayed() {
   const container = document.getElementById('recent-lists');
   container.replaceChildren();
   const showSongStats = document.getElementById('show-song-stats').checked;
+  const showUnmatchedDuration = document.getElementById('show-unmatched-duration').checked;
 
   lastStationResults.forEach((result) => {
     const stationCard = createElement('section', undefined, 'station-section recent-column');
