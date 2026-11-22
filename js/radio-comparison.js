@@ -260,5 +260,5 @@ if (isAuthorized()) {
   document.getElementById('run-button').addEventListener('click', runComparison);
   document.getElementById('show-song-stats').addEventListener('change', renderRecentlyPlayed);
 } else {
-  document.body.textContent = 'Not authorized.';
+  document.body.innerHTML = 'Not authorized. <a href="index.html#edit" style="color:#00e5ff">Unlock editing first</a>.';
 }
