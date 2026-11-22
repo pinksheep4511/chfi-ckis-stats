@@ -217,10 +217,12 @@ function renderRecentlyPlayed() {
         createElement('div', `${track.title} - ${track.artist}`, 'track-title'),
         createElement('div', `${track.play_date} \u00B7 ${track.start_time}`, 'track-time')
       );
-      if (!song) {
-        card.appendChild(createElement('div', 'Not in song list yet', 'track-unmatched'));
-      } else if (showSongStats) {
-        card.appendChild(createElement('div', formatSongStatsLine(song), 'track-stats'));
+      if (showSongStats) {
+        card.appendChild(
+          song
+            ? createElement('div', formatSongStatsLine(song), 'track-stats')
+            : createElement('div', 'Not in list yet', 'track-unmatched')
+        );
       }
       stationColumn.appendChild(card);
     });
