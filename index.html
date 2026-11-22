@@ -1349,6 +1349,7 @@
       if (isEditingUnlocked()) {
         songToolbarElement.append(
           createActionButton('Add song', () => openSongEditor(null)),
+          createActionButton('Radio comparison', () => { location.href = 'radio-comparison.html'; }),
           createActionButton('Lock editing', lockEditing)
         );
       } else {
