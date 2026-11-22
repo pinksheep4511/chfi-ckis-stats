@@ -26,8 +26,8 @@ export async function loadStationSongRows(station) {
   return parsed.data;
 }
 
-export async function fetchRecentTracks(station) {
-  const response = await fetch(`${RECENTLY_PLAYED_API_URL}?station=${station.callSign}`);
+export async function fetchRecentTracks(station, dayCount = RECENT_DAY_COUNT) {
+  const response = await fetch(`${RECENTLY_PLAYED_API_URL}?station=${station.callSign}&days=${dayCount}`);
   if (!response.ok) throw new Error(`${station.callSign} recently played: HTTP ${response.status}`);
   const payload = await response.json();
   if (payload.error) throw new Error(payload.error);
