@@ -50,9 +50,9 @@ const SECTIONS = [
   { title: 'Effective duration (all plays)', population: 'playLengths', getValue: (seconds) => seconds, format: formatDuration, decimals: 1 },
   { title: 'Notes / sec', population: 'matchedSongs', getValue: (song) => song.notesPerSecond, format: formatNumber, decimals: 3 },
   { title: 'BPM', population: 'matchedSongs', getValue: (song) => song.bpm, format: formatNumber, decimals: 1 },
-  { title: 'Energy', population: 'matchedSongs', getValue: (song) => song.energy, format: formatNumber, decimals: 1 },
-  { title: 'Danceability', population: 'matchedSongs', getValue: (song) => song.danceability, format: formatNumber, decimals: 1 },
-  { title: 'Happiness', population: 'matchedSongs', getValue: (song) => song.happiness, format: formatNumber, decimals: 1 },
+  { title: 'Energy', isAttribute: true, population: 'matchedSongs', getValue: (song) => song.energy, format: formatNumber, decimals: 1 },
+  { title: 'Danceability', isAttribute: true, population: 'matchedSongs', getValue: (song) => song.danceability, format: formatNumber, decimals: 1 },
+  { title: 'Happiness', isAttribute: true, population: 'matchedSongs', getValue: (song) => song.happiness, format: formatNumber, decimals: 1 },
 ];
 
 // ---------- Stats ----------
@@ -76,7 +76,7 @@ function summarize(values) {
   };
 }
 
-function buildStationResult(station, playEntries) {
+function buildStationResult(station, playEntries, selectedDateLabels) {
   const populations = {
     matchedSongs: playEntries.filter((entry) => entry.song).map((entry) => entry.song),
     playLengths: playEntries.map((entry) => Number(entry.track.length_seconds)).filter((seconds) => seconds > 0),
@@ -91,9 +91,15 @@ function buildStationResult(station, playEntries) {
   const bracketCounts = NOTE_BRACKET_LABELS.map(() => 0);
   populations.matchedSongs.forEach((song) => { bracketCounts[getNoteBracketIndex(song.notes)] += 1; });
 
+  // Every ticked day gets a count, even if the station played nothing on it.
+  const playCountsByDate = {};
+  selectedDateLabels.forEach((dateLabel) => { playCountsByDate[dateLabel] = 0; });
+  playEntries.forEach(({ track }) => { playCountsByDate[track.play_date] = (playCountsByDate[track.play_date] || 0) + 1; });
+
   return {
     station,
     playEntries,
+    playCountsByDate,
     totalPlays: playEntries.length,
     matchedCount: populations.matchedSongs.length,
     summaries,
@@ -123,7 +129,7 @@ async function loadStationEntries(station, selectedDateLabels, dayCount) {
       await yieldToBrowser();
     }
   }
-  return buildStationResult(station, playEntries);
+  return buildStationResult(station, playEntries, selectedDateLabels);
 }
 
 // ---------- Rendering ----------
@@ -149,7 +155,18 @@ function buildComparisonRows(stationResults) {
     return { text: `${matchRate.toFixed(1)}%`, compareValue: Number(matchRate.toFixed(1)) };
   }));
 
-  SECTIONS.forEach((section) => {
+  rows.push({ header: 'Tracks played' });
+  const recentDateLabels = buildRecentDateLabels();
+  const playedDateLabels = [...new Set(stationResults.flatMap((result) => Object.keys(result.playCountsByDate)))].sort().reverse(); // newest first
+  playedDateLabels.forEach((dateLabel) => {
+    rows.push(makeRow(buildDayLabel(dateLabel, recentDateLabels.indexOf(dateLabel)), true, stationResults, (result) => {
+      const playCount = result.playCountsByDate[dateLabel] ?? 0;
+      return { text: String(playCount), compareValue: playCount };
+    }));
+  });
+
+  const showAttributes = document.getElementById('show-attributes').checked;
+  SECTIONS.filter((section) => showAttributes || !section.isAttribute).forEach((section) => {
     rows.push({ header: section.title });
     SUMMARY_ROWS.forEach((summaryRow) => {
       const decimals = Math.max(0, section.decimals - summaryRow.fewerDecimals);
@@ -308,6 +325,7 @@ const resultsCardElement = document.getElementById('results-card');
 const stationSelectElement = document.getElementById('station-select');
 const showSongStatsCheckbox = document.getElementById('show-song-stats');
 const showUnmatchedDurationCheckbox = document.getElementById('show-unmatched-duration');
+const showAttributesCheckbox = document.getElementById('show-attributes');
 const runButtonElement = document.getElementById('run-button');
 
 let isComparisonRunning = false;
@@ -322,6 +340,7 @@ function updateControlStates() {
   stationSelectElement.disabled = isComparisonRunning;
   document.querySelectorAll('#day-options input').forEach((checkbox) => { checkbox.disabled = isComparisonRunning; });
   showSongStatsCheckbox.disabled = isComparisonRunning;
+  showAttributesCheckbox.disabled = isComparisonRunning;
   showUnmatchedDurationCheckbox.disabled = isComparisonRunning || !showSongStatsCheckbox.checked;
   runButtonElement.disabled = isComparisonRunning || hasNoDaysSelected;
 }
@@ -334,6 +353,10 @@ function handleDayOptionChange() {
 function handleDisplayOptionChange() {
   updateControlStates();
   renderRecentlyPlayed();
+}
+
+function handleAttributesOptionChange() {
+  if (lastStationResults.length > 0) renderComparisonTable(lastStationResults);
 }
 
 function getSelectedStations() {
@@ -375,6 +398,7 @@ if (isAuthorized()) {
   runButtonElement.addEventListener('click', runComparison);
   showSongStatsCheckbox.addEventListener('change', handleDisplayOptionChange);
   showUnmatchedDurationCheckbox.addEventListener('change', handleDisplayOptionChange);
+  showAttributesCheckbox.addEventListener('change', handleAttributesOptionChange);
 } else {
   document.body.innerHTML = 'Not authorized. <a href="index.html#edit" style="color:#00e5ff">Unlock editing first</a>.';
 }
