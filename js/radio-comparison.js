@@ -221,8 +221,21 @@ function renderComparisonTable(stationResults) {
   });
 }
 
+const SUBSCRIPT_ZERO_CODE_POINT = 0x2080; // subscript digits ₀-₉ are consecutive from here
+
+function formatPercentileLabel(percentile) {
+  const subscriptDigits = String(percentile).split('').map((digit) => String.fromCharCode(SUBSCRIPT_ZERO_CODE_POINT + Number(digit)));
+  return `P${subscriptDigits.join('')}`;
+}
+
 function formatSongStatsLine(song) {
-  return `\u266A ${song.notes} \u00B7 P${song.notePercentile} \u00B7 \u231A ${formatDuration(song.durationSeconds, 0)} \u00B7 \u26A1 ${song.notesPerSecond.toFixed(2)} \u00B7 ${song.bpm} BPM`;
+  return `\u266A ${song.notes} \u00B7 ${formatPercentileLabel(song.notePercentile)} \u00B7 \u231A ${formatDuration(song.durationSeconds, 0)} \u00B7 \u26A1 ${song.notesPerSecond.toFixed(2)} \u00B7 ${song.bpm} BPM`;
+}
+
+function formatUnmatchedLabel(track, showDuration) {
+  const lengthSeconds = Number(track.length_seconds);
+  if (!showDuration || !(lengthSeconds > 0)) return 'Not in list yet';
+  return `Not in list yet (\u231A ${formatDuration(lengthSeconds, 0)})`;
 }
 
 let loadedStations = [];      // { station, playEntries } for every play of the last 7 days
@@ -248,7 +261,7 @@ function renderRecentlyPlayed() {
         card.appendChild(
           song
             ? createElement('div', formatSongStatsLine(song), 'track-stats')
-            : createElement('div', 'Not in song list yet', 'track-unmatched')
+            : createElement('div', formatUnmatchedLabel(track, showUnmatchedDuration), 'track-unmatched')
         );
       }
       stationCard.appendChild(card);
@@ -341,7 +354,14 @@ async function runComparison() {
 if (isAuthorized()) {
   renderDayOptions();
   document.getElementById('run-button').addEventListener('click', runComparison);
-  document.getElementById('show-song-stats').addEventListener('change', renderRecentlyPlayed);
+  const showSongStatsCheckbox = document.getElementById('show-song-stats');
+  const showUnmatchedDurationCheckbox = document.getElementById('show-unmatched-duration');
+  const handleDisplayOptionChange = () => {
+    showUnmatchedDurationCheckbox.disabled = !showSongStatsCheckbox.checked;
+    renderRecentlyPlayed();
+  };
+  showSongStatsCheckbox.addEventListener('change', handleDisplayOptionChange);
+  showUnmatchedDurationCheckbox.addEventListener('change', handleDisplayOptionChange);
 } else {
   document.body.innerHTML = 'Not authorized. <a href="index.html#edit" style="color:#00e5ff">Unlock editing first</a>.';
 }
