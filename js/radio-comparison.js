@@ -105,24 +105,25 @@ function buildStationResult(station, playEntries) {
 
 const yieldToBrowser = () => new Promise((resolve) => setTimeout(resolve));
 
-// Matches every play from the last 7 days once. Day filtering happens later, so ticking a day costs nothing.
-async function loadStationEntries(station) {
-  const [songRows, tracks] = await Promise.all([loadStationSongRows(station), fetchRecentTracks(station)]);
+// Fetches only as many days as the oldest ticked day needs, and matches only plays from ticked days.
+async function loadStationEntries(station, selectedDateLabels, dayCount) {
+  const [songRows, tracks] = await Promise.all([loadStationSongRows(station), fetchRecentTracks(station, dayCount)]);
   const songDb = buildSongDatabase(songRows, station);
   const findSong = createSongFinder(songDb);
 
+  const tracksToMatch = tracks.filter((track) => selectedDateLabels.has(track.play_date));
   const playEntries = [];
-  for (let trackIndex = 0; trackIndex < tracks.length; trackIndex++) {
-    const track = tracks[trackIndex];
+  for (let trackIndex = 0; trackIndex < tracksToMatch.length; trackIndex++) {
+    const track = tracksToMatch[trackIndex];
     const match = findSong(track.title, track.artist);
     playEntries.push({ track, song: match.key ? songDb.get(match.key) : null });
 
     if (trackIndex % MATCH_YIELD_INTERVAL === 0) {
-      setStatus(`Matching ${station.callSign} songs... (${trackIndex}/${tracks.length})`);
+      setStatus(`Matching ${station.callSign} songs... (${trackIndex}/${tracksToMatch.length})`);
       await yieldToBrowser();
     }
   }
-  return { station, playEntries };
+  return buildStationResult(station, playEntries);
 }
 
 // ---------- Rendering ----------
@@ -238,8 +239,7 @@ function formatUnmatchedLabel(track, showDuration) {
   return `Not in list yet (\u231A ${formatDuration(lengthSeconds, 0)})`;
 }
 
-let loadedStations = [];      // { station, playEntries } for every play of the last 7 days
-let lastStationResults = [];  // the same stations, filtered to the ticked days
+let lastStationResults = [];  // results of the last run, for the ticked days only
 
 function renderRecentlyPlayed() {
   const container = document.getElementById('recent-lists');
@@ -289,7 +289,7 @@ function renderDayOptions() {
     checkbox.type = 'checkbox';
     checkbox.value = dateLabel;
     checkbox.checked = true;
-    checkbox.addEventListener('change', refreshResults);
+    checkbox.addEventListener('change', handleDayOptionChange);
 
     const option = createElement('label', undefined, 'day-option');
     option.append(checkbox, createElement('span', buildDayLabel(dateLabel, daysAgo)));
@@ -305,62 +305,74 @@ function getSelectedDateLabels() {
 
 const statusElement = document.getElementById('status-message');
 const resultsCardElement = document.getElementById('results-card');
+const stationSelectElement = document.getElementById('station-select');
+const showSongStatsCheckbox = document.getElementById('show-song-stats');
+const showUnmatchedDurationCheckbox = document.getElementById('show-unmatched-duration');
+const runButtonElement = document.getElementById('run-button');
+
+let isComparisonRunning = false;
 
 function setStatus(message) {
   statusElement.textContent = message;
 }
 
+// Single place that decides which controls are enabled.
+function updateControlStates() {
+  const hasNoDaysSelected = getSelectedDateLabels().size === 0;
+  stationSelectElement.disabled = isComparisonRunning;
+  document.querySelectorAll('#day-options input').forEach((checkbox) => { checkbox.disabled = isComparisonRunning; });
+  showSongStatsCheckbox.disabled = isComparisonRunning;
+  showUnmatchedDurationCheckbox.disabled = isComparisonRunning || !showSongStatsCheckbox.checked;
+  runButtonElement.disabled = isComparisonRunning || hasNoDaysSelected;
+}
+
+function handleDayOptionChange() {
+  setStatus(getSelectedDateLabels().size === 0 ? 'Select at least one day to run a comparison.' : '');
+  updateControlStates();
+}
+
+function handleDisplayOptionChange() {
+  updateControlStates();
+  renderRecentlyPlayed();
+}
+
 function getSelectedStations() {
-  const selectedValue = document.getElementById('station-select').value;
+  const selectedValue = stationSelectElement.value;
   return selectedValue === 'BOTH' ? STATIONS : STATIONS.filter((station) => station.callSign === selectedValue);
 }
 
-// Rebuilds everything from the already-matched plays, limited to the ticked days.
-function refreshResults() {
-  if (loadedStations.length === 0) return;
-
-  const selectedDateLabels = getSelectedDateLabels();
-  if (selectedDateLabels.size === 0) {
-    lastStationResults = [];
-    resultsCardElement.hidden = true;
-    renderRecentlyPlayed();
-    setStatus('Select at least one day.');
-    return;
-  }
-
-  lastStationResults = loadedStations.map(({ station, playEntries }) =>
-    buildStationResult(station, playEntries.filter(({ track }) => selectedDateLabels.has(track.play_date)))
-  );
-  renderComparisonTable(lastStationResults);
-  renderRecentlyPlayed();
-  resultsCardElement.hidden = false;
-  setStatus('');
-}
-
 async function runComparison() {
-  const runButton = document.getElementById('run-button');
-  runButton.disabled = true;
+  const selectedDateLabels = getSelectedDateLabels();
+  if (selectedDateLabels.size === 0) return;
+
+  const recentDateLabels = buildRecentDateLabels();
+  const oldestSelectedDaysAgo = Math.max(...[...selectedDateLabels].map((dateLabel) => recentDateLabels.indexOf(dateLabel)));
+  const dayCount = Math.max(1, oldestSelectedDaysAgo + 1);
+
+  isComparisonRunning = true;
+  updateControlStates();
   setStatus('Loading song lists and recent plays...');
   try {
-    loadedStations = await Promise.all(getSelectedStations().map(loadStationEntries));
-    refreshResults();
+    lastStationResults = await Promise.all(
+      getSelectedStations().map((station) => loadStationEntries(station, selectedDateLabels, dayCount))
+    );
+    renderComparisonTable(lastStationResults);
+    renderRecentlyPlayed();
+    resultsCardElement.hidden = false;
+    setStatus('');
   } catch (error) {
     console.error(error);
     setStatus(`Comparison failed: ${error.message}`);
   } finally {
-    runButton.disabled = false;
+    isComparisonRunning = false;
+    updateControlStates();
   }
 }
 
 if (isAuthorized()) {
   renderDayOptions();
-  document.getElementById('run-button').addEventListener('click', runComparison);
-  const showSongStatsCheckbox = document.getElementById('show-song-stats');
-  const showUnmatchedDurationCheckbox = document.getElementById('show-unmatched-duration');
-  const handleDisplayOptionChange = () => {
-    showUnmatchedDurationCheckbox.disabled = !showSongStatsCheckbox.checked;
-    renderRecentlyPlayed();
-  };
+  updateControlStates();
+  runButtonElement.addEventListener('click', runComparison);
   showSongStatsCheckbox.addEventListener('change', handleDisplayOptionChange);
   showUnmatchedDurationCheckbox.addEventListener('change', handleDisplayOptionChange);
 } else {
