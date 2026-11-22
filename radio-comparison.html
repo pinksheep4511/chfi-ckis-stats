@@ -6,55 +6,97 @@
   <title>Radio Comparison</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
   <style>
-    @font-face { font-family: 'Minecraft Seven'; src: url('fonts/MinecraftSeven-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
-    @font-face { font-family: 'Minecraft Seven'; src: url('fonts/MinecraftSeven-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
+    @font-face { font-family: 'Minecraft Seven'; src: url('fonts/MinecraftSeven-Regular.otf') format('opentype'); font-weight: 400; font-style: normal; size-adjust: 125%; font-display: swap; }
+    @font-face { font-family: 'Minecraft Seven'; src: url('fonts/MinecraftSeven-Bold.otf') format('opentype'); font-weight: 700; font-style: normal; size-adjust: 125%; font-display: swap; }
     :root {
       --background: #000; --surface: #111; --text: #f2f2f2; --text-muted: #8a8a8a; --border: #222;
-      --chfi-accent: #00e5ff; --ckis-accent: #ff2e93;
+      --chfi-accent: #00e5ff; --ckis-accent: #ff2e93; --compare-accent: #ffaa00;
       --better: #55ff55; --worse: #ff5555;
+      --accent: var(--compare-accent); /* each card overrides this with its own color */
     }
     * { box-sizing: border-box; }
     body { margin: 0; padding: 24px; background: var(--background); color: var(--text); font-family: 'Minecraft Seven', system-ui, sans-serif; }
-    h1 { margin: 0 0 24px; font-size: 1.5rem; }
+    h1 { margin: 0; font-size: 1.5rem; }
+    h2 { margin: 0 0 12px; font-size: 1.25rem; }
+    .page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+
+    /* Cards, same look as the index page sections */
+    .station-section { margin-bottom: 24px; padding: 20px; border: 2px solid var(--accent); border-radius: 16px; }
+    .station-section h2 { color: var(--accent); }
+
+    .back-button, #run-button, select {
+      padding: 8px 20px; background: transparent; color: var(--text-muted); border: 2px solid var(--border);
+      border-radius: 999px; font-family: inherit; font-size: 1rem; text-decoration: none; cursor: pointer;
+    }
+    #run-button { color: var(--background); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+    select { background: var(--surface); color: var(--text); }
+    #run-button:disabled { opacity: 0.5; cursor: default; }
+
     .controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 16px; }
-    select, button { font-family: inherit; font-size: 1rem; padding: 8px 16px; background: var(--surface); color: var(--text); border: 2px solid var(--border); border-radius: 999px; }
-    button { cursor: pointer; }
-    button:disabled { opacity: 0.5; cursor: default; }
-    .status-message { color: var(--text-muted); padding: 8px 0; }
-    .table-wrapper { overflow-x: auto; margin-bottom: 24px; }
+    .option-title { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px; }
+    .day-options { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .day-option, .checkbox-option { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .day-option { padding: 6px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; font-size: 0.9rem; }
+    input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+
+    .status-message { color: var(--text-muted); padding: 8px 0; margin-bottom: 16px; }
+    .status-message:empty { display: none; }
+
+    .table-wrapper { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; }
     th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
     td:not(:first-child), th:not(:first-child) { text-align: right; }
+    th { color: var(--accent); }
     .section-header { text-align: left !important; background: var(--surface); }
     .better { color: var(--better); }
     .worse { color: var(--worse); }
+
     .recent-lists { display: flex; flex-wrap: wrap; gap: 16px; }
-    .recent-column { flex: 1 1 320px; min-width: 0; }
-    .track-card { padding: 10px; margin-bottom: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
-    .track-title { overflow-wrap: anywhere; }
-    .track-time { color: var(--text-muted); font-size: 0.85rem; margin-top: 2px; }
+    .recent-column { flex: 1 1 320px; min-width: 0; margin-bottom: 0; }
+    .track-card { padding: 12px; margin-bottom: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .track-title { font-weight: 700; overflow-wrap: anywhere; }
+    .track-time { color: var(--accent); font-size: 0.85rem; margin-top: 4px; }
     .track-stats { color: #55ffff; font-size: 0.85rem; margin-top: 4px; }
     .track-unmatched { color: var(--worse); font-size: 0.85rem; margin-top: 4px; }
-    @media (max-width: 600px) { body { padding: 8px; } }
+
+    @media (max-width: 600px) {
+      body { padding: 8px; }
+      h1 { font-size: 1.25rem; }
+      .station-section { margin-bottom: 12px; padding: 10px; border-width: 1px; border-radius: 12px; }
+      th, td { padding: 8px 6px; }
+    }
   </style>
 </head>
 <body>
-  <h1>Radio Comparison</h1>
-
-  <div class="controls">
-    <label>Station
-      <select id="station-select">
-        <option value="BOTH">Both</option>
-        <option value="CHFI">CHFI</option>
-        <option value="CKIS">CKIS</option>
-      </select>
-    </label>
-    <label><input type="checkbox" id="show-song-stats"> Show song stats</label>
-    <button id="run-button">Run comparison</button>
+  <div class="page-header">
+    <a class="back-button" href="index.html">&larr; Back</a>
+    <h1>Radio Comparison</h1>
   </div>
 
+  <section class="station-section" id="controls-card">
+    <h2>Compare</h2>
+    <div class="controls">
+      <label>Station
+        <select id="station-select">
+          <option value="BOTH">Both</option>
+          <option value="CHFI">CHFI</option>
+          <option value="CKIS">CKIS</option>
+        </select>
+      </label>
+      <label class="checkbox-option"><input type="checkbox" id="show-song-stats"> Show song stats</label>
+    </div>
+    <div class="option-title">Days to include</div>
+    <div class="day-options" id="day-options"></div>
+    <button id="run-button">Run comparison</button>
+  </section>
+
   <div class="status-message" id="status-message"></div>
-  <div class="table-wrapper"><table id="comparison-table"></table></div>
+
+  <section class="station-section" id="results-card" hidden>
+    <h2>Comparison</h2>
+    <div class="table-wrapper"><table id="comparison-table"></table></div>
+  </section>
+
   <div class="recent-lists" id="recent-lists"></div>
 
   <script type="module" src="js/radio-comparison.js"></script>
