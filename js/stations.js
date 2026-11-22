@@ -57,5 +57,24 @@ export function buildSongDatabase(songRows, station) {
       happiness: row.happiness,
     });
   });
+  const allNotes = [...songDb.values()].map((song) => song.notes);
+  songDb.forEach((song) => {
+    const lowerCount = allNotes.filter((notes) => notes < song.notes).length;
+    const tiedCount = allNotes.filter((notes) => notes === song.notes).length;
+    song.notePercentile = Math.round(((lowerCount + 0.5 * tiedCount) / allNotes.length) * 100);
+  });
   return songDb;
+}
+
+export const TIME_ZONE = 'America/Toronto';
+export const RECENT_DAY_COUNT = 7; // the Apps Script returns today plus the 6 days before it
+
+const dateLabelFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }); // gives yyyy-MM-dd
+
+/** yyyy-MM-dd labels, today first. Calendar arithmetic, so daylight saving can't skip or repeat a day. */
+export function buildRecentDateLabels(dayCount = RECENT_DAY_COUNT) {
+  const [year, month, day] = dateLabelFormatter.format(new Date()).split('-').map(Number);
+  return Array.from({ length: dayCount }, (_, daysAgo) =>
+    new Date(Date.UTC(year, month - 1, day - daysAgo)).toISOString().slice(0, 10)
+  );
 }
