@@ -1388,7 +1388,7 @@
 
     const RADIO_MAX_RECOVERY_ATTEMPTS = 10; // covers skipping every segment of a longer ad
     const RADIO_AD_SKIP_DELAY_MS = 1000; // blocked ad segments fail instantly, so without a pause the retry loop spins hundreds of times a second
-    const RADIO_MAX_AD_RELOADS = 5; // how many times to re-request the stream when the playlist only had ad segments left
+    #const RADIO_MAX_AD_RELOADS = 5; // how many times to re-request the stream when the playlist only had ad segments left
     const RADIO_MAX_AD_SKIP_DURATION_MS = 3 * 60 * 1000; // give up if nothing but ad segments arrive for this long
     const BLOCK_PRE_ROLL_ADS_STORAGE_KEY = 'blockPreRollAds';
     // Ads and music are served from the same host, so match on the ad path. From your Network tab, ad segments are
@@ -1493,7 +1493,8 @@
 
         const lastKnownSegmentNumber = hlsToRecover.levels[data.frag.level]?.details?.endSN;
         const wasLastKnownSegment = data.frag.sn >= lastKnownSegmentNumber;
-        if (wasLastKnownSegment && radioAdReloadCount < RADIO_MAX_AD_RELOADS) {
+        #if (wasLastKnownSegment && radioAdReloadCount < RADIO_MAX_AD_RELOADS) {
+        if (wasLastKnownSegment && radioAdReloadCount) {
           // Nothing but ads was left in this playlist, so ask for a fresh one instead of waiting at its end.
           radioAdReloadCount += 1;
           setTimeout(() => {
