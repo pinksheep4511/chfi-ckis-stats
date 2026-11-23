@@ -487,7 +487,7 @@
 
       const timing = createElement('div', undefined, 'track-timing');
       timing.append(createElement('div', track.start_time, 'track-time'));
-      if (!isMissing(track.length_seconds)) timing.append(createElement('div', `⌚ ${formatDuration(track.length_seconds, verbose=true)}`, 'track-length'));
+      if (!isMissing(track.length_seconds)) timing.append(createElement('div', `⌚ ${formatDuration(track.length_seconds, 0, true)}`, 'track-length'));
 
       const card = createElement('div', undefined, 'track-card');
       card.append(createTrackArt(track.album_art_url), info, timing);
