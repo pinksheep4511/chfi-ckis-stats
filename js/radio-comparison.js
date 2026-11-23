@@ -323,6 +323,8 @@ function getSelectedDateLabels() {
 const statusElement = document.getElementById('status-message');
 const resultsCardElement = document.getElementById('results-card');
 const stationSelectElement = document.getElementById('station-select');
+const authMessageElement = document.getElementById('auth-message');
+const pageContentElement = document.getElementById('page-content');
 const showSongStatsCheckbox = document.getElementById('show-song-stats');
 const showUnmatchedDurationCheckbox = document.getElementById('show-unmatched-duration');
 const showAttributesCheckbox = document.getElementById('show-attributes');
@@ -393,6 +395,8 @@ async function runComparison() {
 }
 
 if (isAuthorized()) {
+  authMessageElement.hidden = true;
+  pageContentElement.hidden = false;
   renderDayOptions();
   updateControlStates();
   runButtonElement.addEventListener('click', runComparison);
@@ -400,5 +404,5 @@ if (isAuthorized()) {
   showUnmatchedDurationCheckbox.addEventListener('change', handleDisplayOptionChange);
   showAttributesCheckbox.addEventListener('change', handleAttributesOptionChange);
 } else {
-  document.body.innerHTML = 'Not authorized. <a href="index.html#edit" style="color:#00e5ff">Unlock editing first</a>.';
+  authMessageElement.innerHTML = 'Not authorized. <a href="index.html#edit" style="color:#00e5ff">Unlock editing first</a>.';
 }
