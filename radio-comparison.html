@@ -66,6 +66,9 @@
       th, td { padding: 8px 6px; }
     }
   </style>
+  <noscript>
+    <style>#auth-message { display: none; }</style>
+  </noscript>
 </head>
 <body>
   <div class="page-header">
@@ -73,36 +76,44 @@
     <h1>Radio Comparison</h1>
   </div>
 
-  <section class="station-section" id="controls-card">
-    <h2>Compare</h2>
-    <div class="controls">
-      <label>Station
-        <select id="station-select">
-          <option value="BOTH">Both</option>
-          <option value="CHFI">CHFI</option>
-          <option value="CKIS">CKIS</option>
-        </select>
-      </label>
-      <label class="checkbox-option"><input type="checkbox" id="show-song-stats"> Show song stats</label>
-      <label class="checkbox-option"><input type="checkbox" id="show-unmatched-duration" disabled> Show duration of unmatched songs</label>
-      <label class="checkbox-option"><input type="checkbox" id="show-attributes"> Show energy, danceability and happiness</label>
-    </div>
-    <div class="option-title">Days to include</div>
-    <div class="day-options" id="day-options"></div>
-    <button id="run-button">Run comparison</button>
-  </section>
+  <noscript>
+    <p class="status-message" style="color: #ff5555;">JavaScript is disabled. This page needs JavaScript to work. Please enable it and reload.</p>
+  </noscript>
+  <div class="status-message" id="auth-message">Loading...</div>
 
-  <div class="status-message" id="status-message"></div>
+  <div id="page-content" hidden>
+    <section class="station-section" id="controls-card">
+      <h2>Compare</h2>
+      <div class="controls">
+        <label>Station
+          <select id="station-select">
+            <option value="BOTH">Both</option>
+            <option value="CHFI">CHFI</option>
+            <option value="CKIS">CKIS</option>
+          </select>
+        </label>
+        <label class="checkbox-option"><input type="checkbox" id="show-song-stats"> Show song stats</label>
+        <label class="checkbox-option"><input type="checkbox" id="show-unmatched-duration" disabled> Show duration of unmatched songs</label>
+        <label class="checkbox-option"><input type="checkbox" id="show-attributes"> Show energy, danceability and happiness</label>
+      </div>
+      <div class="option-title">Days to include</div>
+      <div class="day-options" id="day-options"></div>
+      <button id="run-button">Run comparison</button>
+    </section>
+  
+    <div class="status-message" id="status-message"></div>
+  
+    <section class="station-section" id="results-card" hidden>
+      <h2>Comparison</h2>
+      <div class="table-wrapper"><table id="comparison-table"></table></div>
+    </section>
 
-  <section class="station-section" id="results-card" hidden>
-    <h2>Comparison</h2>
-    <div class="table-wrapper"><table id="comparison-table"></table></div>
-  </section>
-
-  <div class="recent-lists" id="recent-lists"></div>
+    <div class="recent-lists" id="recent-lists"></div>
+  </div>
   
   <script>
     window.addEventListener('error', (event) => {
+      document.getElementById('auth-message').textContent = `Script error: ${event.message}`;
       document.getElementById('status-message').textContent = `Script error: ${event.message}`;
     });
   </script>
