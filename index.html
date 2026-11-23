@@ -487,7 +487,7 @@
 
       const timing = createElement('div', undefined, 'track-timing');
       timing.append(createElement('div', track.start_time, 'track-time'));
-      if (!isMissing(track.length_seconds)) timing.append(createElement('div', `⌚ ${Math.floor(track.length_seconds / 60)}m ${Math.round(track.length_seconds % 60)}s`, 'track-length'));
+      if (!isMissing(track.length_seconds)) timing.append(createElement('div', `⌚ ${formatDuration(track.length_seconds, verbose=true)}`, 'track-length'));
 
       const card = createElement('div', undefined, 'track-card');
       card.append(createTrackArt(track.album_art_url), info, timing);
@@ -773,12 +773,29 @@
     let sortHeader = null;
     let sortDirection = 1; // 1 = ascending, -1 = descending
 
-    function formatDuration(totalSeconds, decimalPlaces = 0) {
-      const roundedSeconds = Number(Number(totalSeconds).toFixed(decimalPlaces)); // round first so 59.96s carries into the minutes
-      const minutes = Math.floor(roundedSeconds / 60);
-      const secondsText = (roundedSeconds - minutes * 60).toFixed(decimalPlaces);
-      const secondsWidth = decimalPlaces > 0 ? decimalPlaces + 3 : 2; // "05.3" or "05"
-      return `${minutes}:${secondsText.padStart(secondsWidth, '0')}`;
+    function formatDuration(totalSeconds, decimalPlaces = 0, verbose = false) {
+      const roundedSeconds = Number(Number(totalSeconds).toFixed(decimalPlaces)); // round first so 59.96s carries up
+    
+      if (!verbose) {
+        const minutes = Math.floor(roundedSeconds / 60);
+        const secondsText = (roundedSeconds - minutes * 60).toFixed(decimalPlaces);
+        const secondsWidth = decimalPlaces > 0 ? decimalPlaces + 3 : 2; // "05.3" or "05"
+        return `${minutes}:${secondsText.padStart(secondsWidth, '0')}`;
+      }
+    
+      const days = Math.floor(roundedSeconds / 86400);
+      const hours = Math.floor((roundedSeconds - days * 86400) / 3600);
+      const minutes = Math.floor((roundedSeconds - days * 86400 - hours * 3600) / 60);
+      const remainingSeconds = roundedSeconds - days * 86400 - hours * 3600 - minutes * 60;
+      const secondsText = remainingSeconds.toFixed(decimalPlaces);
+    
+      const parts = [];
+      if (days > 0) parts.push(`${days}d`);
+      if (hours > 0 || days > 0) parts.push(`${hours}h`);
+      if (minutes > 0 || hours > 0 || days > 0) parts.push(`${minutes}m`);
+      parts.push(`${secondsText}s`);
+    
+      return parts.join(' ');
     }
 
     function formatOrdinal(n) {
