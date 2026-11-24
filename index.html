@@ -1517,7 +1517,7 @@
         const lastKnownSegmentNumber = hlsToRecover.levels[data.frag.level]?.details?.endSN;
         const wasLastKnownSegment = data.frag.sn >= lastKnownSegmentNumber;
         //if (wasLastKnownSegment && radioAdReloadCount < RADIO_MAX_AD_RELOADS) {
-        if (wasLastKnownSegment && radioAdReloadCount) {
+        if (wasLastKnownSegment) {
           // Nothing but ads was left in this playlist, so ask for a fresh one instead of waiting at its end.
           radioAdReloadCount += 1;
           setTimeout(() => {
